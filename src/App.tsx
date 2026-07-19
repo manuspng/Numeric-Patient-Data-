@@ -1645,6 +1645,19 @@ export default function App() {
                 </div>
               </div>
 
+              {/* IFRAME BROWSER COOKIE POLICY WARNING FOR SUPER ADMIN */}
+              {user.role === UserRole.SUPER_ADMIN && (
+                <div className="p-4 bg-amber-50 border border-amber-200/60 rounded-2xl flex items-start gap-3 text-left print:hidden shadow-xs">
+                  <span className="text-base mt-0.5">⚠️</span>
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider">Iframe Browser Cookie Policy Detected</h4>
+                    <p className="text-[11px] text-amber-800 leading-relaxed">
+                      Google Sign-In popups can be restricted inside embedded preview frames because modern browsers block third-party cookies by default.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Dynamic TAB content */}
               <div className="min-h-[40rem] pb-12">
                 {user.role === UserRole.HOSPITAL_USER && (
