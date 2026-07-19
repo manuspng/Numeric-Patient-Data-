@@ -739,6 +739,7 @@ export default function App() {
 
   const handleGoogleLogin = async () => {
     setLoginError("");
+    const isIframe = window.self !== window.top;
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const email = result.user?.email;
@@ -750,11 +751,33 @@ export default function App() {
       await proceedWithGoogleLoginByEmail(email);
     } catch (err: any) {
       console.warn("Standard Firebase Google Sign-In failed or was blocked/restricted:", err);
+      
+      const errCode = err?.code || "";
+      let toastTitle = "⚠️ Sign-In Assisted";
+      let toastContent = "Direct secure entry fallback has been enabled.";
+
+      if (isIframe) {
+        toastTitle = "⚠️ Google Popup Restricted";
+        toastContent = "Iframe browser security detected (blocked third-party cookies). Direct secure entry fallback has been enabled.";
+      } else if (errCode === "auth/unauthorized-domain") {
+        toastTitle = "🔒 Unauthorized Domain";
+        toastContent = `This domain (${window.location.hostname}) is not authorized in Firebase Console. Direct secure entry fallback has been enabled.`;
+      } else if (errCode === "auth/popup-closed-by-user") {
+        toastTitle = "✕ Sign-In Cancelled";
+        toastContent = "The Google login popup was closed. Direct secure entry fallback has been enabled for your convenience.";
+      } else if (errCode === "auth/popup-blocked") {
+        toastTitle = "🚫 Popup Blocked";
+        toastContent = "The login popup was blocked by your browser. Direct secure entry fallback has been enabled.";
+      } else {
+        toastTitle = "⚠️ Authentication Issue";
+        toastContent = `${err.message || "An issue occurred."} Direct secure entry fallback has been enabled.`;
+      }
+
       // Open the secure browser policy fallback modal automatically so they can log in seamlessly
       setIsGoogleFallbackOpen(true);
       showToast({
-        title: "⚠️ Google Popup Restricted",
-        content: "Iframe browser security detected. Direct secure entry fallback has been enabled."
+        title: toastTitle,
+        content: toastContent
       });
     }
   };
@@ -951,7 +974,7 @@ export default function App() {
                     Sign in with Google
                   </button>
                   <p className="text-[10px] text-slate-500 text-center mt-2.5">
-                    Trouble with Google Popup inside iframe?{" "}
+                    Trouble with Google Popup?{" "}
                     <button
                       type="button"
                       onClick={() => setIsGoogleFallbackOpen(true)}
@@ -1635,18 +1658,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* IFRAME BROWSER COOKIE POLICY WARNING FOR SUPER ADMIN */}
-              {user.role === UserRole.SUPER_ADMIN && (
-                <div className="p-4 bg-amber-50 border border-amber-200/60 rounded-2xl flex items-start gap-3 text-left print:hidden shadow-xs">
-                  <span className="text-base mt-0.5">⚠️</span>
-                  <div className="space-y-1">
-                    <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider">Iframe Browser Cookie Policy Detected</h4>
-                    <p className="text-[11px] text-amber-800 leading-relaxed">
-                      Google Sign-In popups can be restricted inside embedded preview frames because modern browsers block third-party cookies by default.
-                    </p>
-                  </div>
-                </div>
-              )}
+
 
               {/* Dynamic TAB content */}
               <div className="min-h-[40rem] pb-12">
