@@ -1223,8 +1223,32 @@ export default function App() {
                   </button>
                 </div>
                 <div className="space-y-4">
-                  <p className="text-[11px] text-slate-600 font-medium">
-                    Because this is your secure local workspace, you can authenticate directly as any whitelisted email below without a password.
+                  {/* DETAILED EXPLANATION FOR UN-WHITELISTED DOMAIN AND PATTERN MATCH ERRORS */}
+                  <div className="p-4 bg-emerald-50/50 border border-emerald-100/80 rounded-2xl space-y-2.5">
+                    <h4 className="text-[11px] font-black text-emerald-950 uppercase tracking-wider flex items-center gap-1.5">
+                      <span>🔧</span> How to fix Google Popup & Domain errors:
+                    </h4>
+                    <p className="text-[10.5px] text-slate-600 leading-relaxed">
+                      Errors like <strong className="text-slate-800">"The string did not match the expected pattern"</strong> or <strong className="text-slate-800 font-mono text-[9.5px]">auth/unauthorized-domain</strong> occur when your custom domain is not authorized in Firebase.
+                    </p>
+                    <div className="bg-white/80 border border-emerald-100/50 p-3 rounded-xl space-y-2 text-[10.5px] text-slate-700">
+                      <p className="font-semibold text-emerald-900">Follow these 3 simple steps:</p>
+                      <ol className="list-decimal pl-4 space-y-1 text-slate-600">
+                        <li>Open the <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer" className="text-emerald-800 hover:underline font-bold">Firebase Console</a></li>
+                        <li>Go to <strong className="text-slate-800">Authentication</strong> &rarr; <strong className="text-slate-800">Settings</strong> &rarr; <strong className="text-slate-800">Authorized domains</strong></li>
+                        <li>Add your Vercel domain:
+                          <div className="mt-1 flex items-center gap-2">
+                            <code className="bg-slate-100 text-slate-800 font-mono text-[9px] px-2 py-1 rounded border border-slate-200 select-all font-bold">
+                              numeric-patient-data.vercel.app
+                            </code>
+                          </div>
+                        </li>
+                      </ol>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    ⚡ <strong className="text-slate-800">Bypass / Fallback:</strong> You can skip the Google popup completely and authenticate directly as any registered user below.
                   </p>
 
                   <div className="space-y-3">
