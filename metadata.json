@@ -1,0 +1,6 @@
+{
+  "name": "Ayush MPR Management System",
+  "description": "District-wide Hospital Information & Monthly Progress Report (MPR) Management System for the Ministry of Ayush.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
