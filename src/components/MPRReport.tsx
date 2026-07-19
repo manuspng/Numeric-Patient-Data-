@@ -145,7 +145,7 @@ export default function MPRReport({
       if (targetFacilityCode === "DIST-ALL") {
         recordSource = data.districtTotal;
       } else {
-        recordSource = data.hospitals.find((h: any) => h.hospitalCode === targetFacilityCode);
+        recordSource = (data.hospitals || []).find((h: any) => h.hospitalCode === targetFacilityCode);
       }
 
       if (!recordSource) {
@@ -322,7 +322,7 @@ export default function MPRReport({
     ]);
 
     // Individual Hospitals
-    data.hospitals.forEach((h: any) => {
+    (data.hospitals || []).forEach((h: any) => {
       rows.push([
         h.hospitalCode, h.hospitalName, h.hospitalType, h.daysSubmitted,
         h.opd_male_new, h.opd_male_old, h.opd_female_new, h.opd_female_old, h.opd_child_new, h.opd_child_old, h.opd_elderly_new, h.opd_elderly_old, h.opd_total,
@@ -683,7 +683,7 @@ export default function MPRReport({
           <div className="hidden print:block text-center border-b-2 border-slate-800 pb-4 mb-6">
             <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-normal mb-1">मासिक रोगी विवरण</h1>
             <h2 className="text-md font-bold text-slate-700 tracking-wide uppercase">
-              {data.hospitals.length === 1 ? data.hospitals[0].hospitalName : "जनपद - ऊधम सिंह नगर (District Udham Singh Nagar)"}
+              {(data.hospitals || []).length === 1 ? (data.hospitals || [])[0].hospitalName : "जनपद - ऊधम सिंह नगर (District Udham Singh Nagar)"}
             </h2>
             <p className="text-sm font-bold text-slate-600 mt-1.5">
               मास: {getMonthNameHindi(month).monthHindi} &nbsp;&nbsp; वर्ष: {getMonthNameHindi(month).year}
@@ -815,7 +815,7 @@ export default function MPRReport({
                 })()}
 
                 {/* 2. INDIVIDUAL HOSPITALS SUB-ROWS */}
-                 {data.hospitals
+                 {(data.hospitals || [])
                   .filter((h: any) => selectedHospitalType === "ALL" || h.hospitalType === selectedHospitalType)
                   .map((h: any) => (
                     <tr 
@@ -856,7 +856,7 @@ export default function MPRReport({
 
                 {/* 3. TYPE SUBTOTAL ROW (IF SPECIFIC TYPE SELECTED) */}
                 {selectedHospitalType !== "ALL" && (() => {
-                  const filteredHospitals = data.hospitals.filter((h: any) => h.hospitalType === selectedHospitalType);
+                  const filteredHospitals = (data.hospitals || []).filter((h: any) => h.hospitalType === selectedHospitalType);
                   
                   const sub = filteredHospitals.reduce((acc: any, curr: any) => {
                     return {
@@ -1070,7 +1070,7 @@ export default function MPRReport({
                         customData.districtTotal.malaria, customData.districtTotal.dengue, customData.districtTotal.typhoid, customData.districtTotal.hepatitis_a, customData.districtTotal.hepatitis_b, customData.districtTotal.hepatitis_c, customData.districtTotal.pregnancy_tests, customData.districtTotal.total_tests,
                         customData.districtTotal.camp_count, customData.districtTotal.camp_beneficiaries_total, customData.districtTotal.camp_medicines_distributed, customData.districtTotal.camp_ncd_screenings, customData.districtTotal.camp_ayurvidya_sessions
                       ],
-                      ...customData.hospitals.map((h: any) => [
+                      ...(customData.hospitals || []).map((h: any) => [
                         h.hospitalCode, h.hospitalName, h.hospitalType, h.daysSubmitted,
                         h.opd_male_new, h.opd_male_old, h.opd_female_new, h.opd_female_old,
                         h.opd_child_new, h.opd_child_old, h.opd_total,
@@ -1179,7 +1179,7 @@ export default function MPRReport({
                   })()}
 
                   {/* Facility Rows */}
-                  {customData.hospitals
+                  {(customData.hospitals || [])
                     .filter((h: any) => selectedCustomHospitalType === "ALL" || h.hospitalType === selectedCustomHospitalType)
                     .map((h: any) => (
                       <tr key={h.hospitalId} className="hover:bg-slate-50 transition-colors text-center divide-x divide-slate-100 text-[11px] text-slate-700">
@@ -1215,7 +1215,7 @@ export default function MPRReport({
 
                   {/* Subtotal row */}
                   {selectedCustomHospitalType !== "ALL" && (() => {
-                    const filteredHospitals = customData.hospitals.filter((h: any) => h.hospitalType === selectedCustomHospitalType);
+                    const filteredHospitals = (customData.hospitals || []).filter((h: any) => h.hospitalType === selectedCustomHospitalType);
                     const sub = filteredHospitals.reduce((acc: any, curr: any) => {
                       return {
                         daysSubmitted: acc.daysSubmitted + curr.daysSubmitted,
