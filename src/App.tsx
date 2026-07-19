@@ -50,6 +50,29 @@ import ReportDesigner from "./components/ReportDesigner";
 import { FacilitySettings } from "./components/FacilitySettings";
 import { auth, googleProvider, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged } from "./firebase";
 
+// --- START OF SAFE STORAGE HELPER ---
+// Handles environments where third-party frames or private windows block access to localStorage, preventing crash.
+const safeStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {}
+  },
+  removeItem: (key: string): void => {
+    try {
+      localStorage.removeItem(key);
+    } catch {}
+  }
+};
+// --- END OF SAFE STORAGE HELPER ---
+
 // --- START OF GLOBAL CLIENT-SIDE API SIMULATION INTERCEPTOR ---
 // This supports static hosting platforms like Vercel where the persistent backend container does not run,
 // allowing the entire patient data suite to run 100% client-side with persistent mock routing.
@@ -148,8 +171,10 @@ INITIAL_MOCK_DB.hospitals.forEach((h) => {
   }
 });
 
+let memoryDBFallback: any = null;
+
 const getLocalMockDB = () => {
-  const existing = localStorage.getItem("mpr_simulated_db");
+  const existing = safeStorage.getItem("mpr_simulated_db");
   if (existing) {
     try {
       return JSON.parse(existing);
@@ -157,28 +182,50 @@ const getLocalMockDB = () => {
       // fallback
     }
   }
-  localStorage.setItem("mpr_simulated_db", JSON.stringify(INITIAL_MOCK_DB));
-  return INITIAL_MOCK_DB;
+  
+  if (memoryDBFallback) {
+    return memoryDBFallback;
+  }
+  
+  safeStorage.setItem("mpr_simulated_db", JSON.stringify(INITIAL_MOCK_DB));
+  memoryDBFallback = JSON.parse(JSON.stringify(INITIAL_MOCK_DB));
+  return memoryDBFallback;
 };
 
 const saveLocalMockDB = (db: any) => {
-  localStorage.setItem("mpr_simulated_db", JSON.stringify(db));
+  safeStorage.setItem("mpr_simulated_db", JSON.stringify(db));
+  memoryDBFallback = db;
 };
 
 // Check if we should override/simulate. By default, if window.location.hostname is vercel, or if we cannot reach /api/auth/login.
-let forceMockBackend = window.location.hostname.endsWith(".vercel.app");
+let forceMockBackend = window.location.hostname.endsWith(".vercel.app") || window.location.hostname.includes("vercel");
 
 const originalFetch = window.fetch;
-window.fetch = async function (input, init) {
-  const url = typeof input === "string" ? input : (input as Request).url;
+const customFetch = async function (input: any, init?: any) {
+  let urlStr = "";
+  try {
+    if (typeof input === "string") {
+      urlStr = input;
+    } else if (input && typeof input === "object" && "url" in input) {
+      urlStr = (input as any).url;
+    } else {
+      urlStr = String(input || "");
+    }
+  } catch (e) {
+    console.warn("Failed to stringify fetch input", e);
+  }
+
+  // Only intercept relative /api/ calls or calls on our own origin that target /api/
+  const isApiCall = urlStr.startsWith("/api/") || 
+                    (urlStr.includes("/api/") && (urlStr.startsWith(window.location.origin) || !urlStr.startsWith("http")));
   
-  if (url.startsWith("/api/")) {
+  if (isApiCall) {
     // If not already forced to mock, let's probe/try first, unless we are on Vercel which we know doesn't have a backend.
     if (!forceMockBackend) {
       try {
         const testRes = await originalFetch(input, init);
         const contentType = testRes.headers.get("content-type") || "";
-        if (contentType.includes("application/json") || testRes.status !== 200 || !url.includes("login")) {
+        if (contentType.includes("application/json") || testRes.status !== 200 || !urlStr.includes("login")) {
           // It's a real backend responding properly, let's return it!
           return testRes;
         } else {
@@ -193,11 +240,26 @@ window.fetch = async function (input, init) {
     }
 
     if (forceMockBackend) {
-      console.log(`[MOCK ROUTER] Intercepting: ${url}`);
-      const parsedUrl = new URL(url, window.location.origin);
+      console.log(`[MOCK ROUTER] Intercepting: ${urlStr}`);
+      let parsedUrl;
+      try {
+        parsedUrl = new URL(urlStr, window.location.origin);
+      } catch (e) {
+        // Fallback for relative URLs
+        parsedUrl = { pathname: urlStr.split("?")[0], searchParams: new URLSearchParams(urlStr.split("?")[1] || "") };
+      }
+      
       const pathname = parsedUrl.pathname;
       const method = init?.method?.toUpperCase() || "GET";
-      const body = init?.body ? JSON.parse(init.body as string) : null;
+      
+      let body: any = null;
+      if (init?.body) {
+        try {
+          body = typeof init.body === "string" ? JSON.parse(init.body) : init.body;
+        } catch {
+          body = init.body;
+        }
+      }
       
       const db = getLocalMockDB();
       let responseData: any = { success: false, message: "Route not implemented in simulation" };
@@ -429,6 +491,22 @@ window.fetch = async function (input, init) {
 
   return originalFetch(input, init);
 };
+
+try {
+  Object.defineProperty(window, "fetch", {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value: customFetch
+  });
+} catch (e) {
+  console.warn("Failed to patch window.fetch via Object.defineProperty. Trying direct assignment.", e);
+  try {
+    window.fetch = customFetch as any;
+  } catch (err) {
+    console.error("Failed to intercept fetch totally:", err);
+  }
+}
 // --- END OF GLOBAL CLIENT-SIDE API SIMULATION INTERCEPTOR ---
 
 const getTheme = (role?: UserRole) => {
@@ -599,16 +677,20 @@ const getDynamicHospitalCategory = (h: Hospital | null | undefined): string => {
 export default function App() {
   const [user, setUser] = useState<UserProfile | null>(() => {
     try {
-      const saved = localStorage.getItem("mpr_user");
+      const saved = safeStorage.getItem("mpr_user");
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
     }
   });
+  const userRef = useRef<UserProfile | null>(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
   const theme = getTheme(user?.role);
   const [hospital, setHospital] = useState<Hospital | null>(() => {
     try {
-      const saved = localStorage.getItem("mpr_hospital");
+      const saved = safeStorage.getItem("mpr_hospital");
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -620,7 +702,7 @@ export default function App() {
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<string>(() => {
     try {
-      const saved = localStorage.getItem("mpr_user");
+      const saved = safeStorage.getItem("mpr_user");
       if (saved) {
         const u = JSON.parse(saved);
         if (u && (u.role === UserRole.OFFICE_ADMIN || u.role === UserRole.SUPER_ADMIN)) {
@@ -674,7 +756,7 @@ export default function App() {
 
   // Custom logo state & modal visibility state
   const [customLogo, setCustomLogo] = useState<string | null>(() => {
-    return localStorage.getItem("mpr_custom_logo");
+    return safeStorage.getItem("mpr_custom_logo");
   });
   const [isLogoCustomizerOpen, setIsLogoCustomizerOpen] = useState(false);
   const [tempLogo, setTempLogo] = useState<string>("");
@@ -737,7 +819,7 @@ export default function App() {
   const saveCustomLogo = () => {
     if (tempLogo) {
       setCustomLogo(tempLogo);
-      localStorage.setItem("mpr_custom_logo", tempLogo);
+      safeStorage.setItem("mpr_custom_logo", tempLogo);
       setIsLogoCustomizerOpen(false);
       showToast({
         title: "🍏 Shortcut Logo Configured",
@@ -750,7 +832,7 @@ export default function App() {
 
   const resetToDefaultLogo = () => {
     setCustomLogo(null);
-    localStorage.removeItem("mpr_custom_logo");
+    safeStorage.removeItem("mpr_custom_logo");
     setTempLogo("");
     setIsLogoCustomizerOpen(false);
     showToast({
@@ -812,9 +894,9 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser && firebaseUser.email) {
         const firebaseEmail = firebaseUser.email.toLowerCase().trim();
-        const currentLocalUserEmail = user?.email?.toLowerCase().trim();
+        const currentLocalUserEmail = userRef.current?.email?.toLowerCase().trim();
         
-        if (!user || currentLocalUserEmail !== firebaseEmail) {
+        if (!userRef.current || currentLocalUserEmail !== firebaseEmail) {
           console.log("Firebase Auth change detected: Automatically signing in", firebaseEmail);
           try {
             const res = await fetch("/api/auth/login", {
@@ -829,11 +911,11 @@ export default function App() {
             if (data.success) {
               setUser(data.user);
               setHospital(data.hospital);
-              localStorage.setItem("mpr_user", JSON.stringify(data.user));
+              safeStorage.setItem("mpr_user", JSON.stringify(data.user));
               if (data.hospital) {
-                localStorage.setItem("mpr_hospital", JSON.stringify(data.hospital));
+                safeStorage.setItem("mpr_hospital", JSON.stringify(data.hospital));
               } else {
-                localStorage.removeItem("mpr_hospital");
+                safeStorage.removeItem("mpr_hospital");
               }
               
               if (data.user.role === UserRole.HOSPITAL_USER) {
@@ -856,7 +938,7 @@ export default function App() {
       }
     });
     return () => unsubscribe();
-  }, [user]);
+  }, []);
 
   const fetchHospitalsList = async () => {
     try {
@@ -1018,11 +1100,11 @@ export default function App() {
       if (data.success) {
         setUser(data.user);
         setHospital(data.hospital);
-        localStorage.setItem("mpr_user", JSON.stringify(data.user));
+        safeStorage.setItem("mpr_user", JSON.stringify(data.user));
         if (data.hospital) {
-          localStorage.setItem("mpr_hospital", JSON.stringify(data.hospital));
+          safeStorage.setItem("mpr_hospital", JSON.stringify(data.hospital));
         } else {
-          localStorage.removeItem("mpr_hospital");
+          safeStorage.removeItem("mpr_hospital");
         }
         
         // Auto select tab depending on role
@@ -1090,11 +1172,11 @@ export default function App() {
       if (data.success) {
         setUser(data.user);
         setHospital(data.hospital);
-        localStorage.setItem("mpr_user", JSON.stringify(data.user));
+        safeStorage.setItem("mpr_user", JSON.stringify(data.user));
         if (data.hospital) {
-          localStorage.setItem("mpr_hospital", JSON.stringify(data.hospital));
+          safeStorage.setItem("mpr_hospital", JSON.stringify(data.hospital));
         } else {
-          localStorage.removeItem("mpr_hospital");
+          safeStorage.removeItem("mpr_hospital");
         }
         
         // Auto select tab depending on role
@@ -1171,8 +1253,8 @@ export default function App() {
     }
     setUser(null);
     setHospital(null);
-    localStorage.removeItem("mpr_user");
-    localStorage.removeItem("mpr_hospital");
+    safeStorage.removeItem("mpr_user");
+    safeStorage.removeItem("mpr_hospital");
     setActiveTab("calendar");
     setEmailInput("");
   };
@@ -1724,7 +1806,6 @@ export default function App() {
                   className={`md:hidden w-8 h-8 ${theme.mobileToggle} font-black shadow-md shrink-0 cursor-pointer transition-all duration-300 p-2 rounded-lg ${
                     isMobileNavExpanded ? "rotate-90 scale-110" : ""
                   }`}
-                  title="Toggle Navigation Menu"
                 />
                 <div className="min-w-0 flex-1">
                   <span className={`text-[10px] uppercase font-bold tracking-widest ${theme.accentText} block leading-none mb-1`}>

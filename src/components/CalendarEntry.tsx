@@ -33,6 +33,31 @@ import {
 import { UserRole, UserProfile, DailyReport, PatientMatrixLog, InvestigationsLabLog, InventoryItemLog, OutreachCampLog, MasterDisease, DiseaseOPDLog, CustomReportField, Hospital } from "../types";
 import { getComponentTheme } from "../utils/theme";
 
+const safeStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return localStorage.getItem(key);
+    } catch (e) {
+      console.warn("Storage access denied for key:", key, e);
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn("Storage write denied for key:", key, e);
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      console.warn("Storage removal denied for key:", key, e);
+    }
+  }
+};
+
 const getUsedQtyFromLab = (kitType: string, labData: InvestigationsLabLog): number => {
   const normalized = kitType.toLowerCase();
   if (normalized.includes("hemoglobin") || normalized.includes("hb")) {
@@ -322,7 +347,7 @@ export default function CalendarEntry({
   // Facility-specific active capabilities
   const [hasIpd, setHasIpd] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem(`facility-has-ipd-${selectedHospitalId}`);
+      const saved = safeStorage.getItem(`facility-has-ipd-${selectedHospitalId}`);
       return saved !== null ? saved === "true" : true;
     } catch (e) {
       return true;
@@ -331,7 +356,7 @@ export default function CalendarEntry({
 
   const [hasPanchkarma, setHasPanchkarma] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem(`facility-has-panchkarma-${selectedHospitalId}`);
+      const saved = safeStorage.getItem(`facility-has-panchkarma-${selectedHospitalId}`);
       return saved !== null ? saved === "true" : true;
     } catch (e) {
       return true;
@@ -340,7 +365,7 @@ export default function CalendarEntry({
 
   const [alwaysAllowInventoryEdit, setAlwaysAllowInventoryEdit] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem(`facility-always-allow-inventory-edit-${selectedHospitalId}`);
+      const saved = safeStorage.getItem(`facility-always-allow-inventory-edit-${selectedHospitalId}`);
       return saved !== null ? saved === "true" : false;
     } catch (e) {
       return false;
@@ -352,13 +377,13 @@ export default function CalendarEntry({
   // Sync capability toggles when selected hospital ID or activeTab changes
   useEffect(() => {
     try {
-      const savedIpd = localStorage.getItem(`facility-has-ipd-${selectedHospitalId}`);
+      const savedIpd = safeStorage.getItem(`facility-has-ipd-${selectedHospitalId}`);
       setHasIpd(savedIpd !== null ? savedIpd === "true" : true);
 
-      const savedPk = localStorage.getItem(`facility-has-panchkarma-${selectedHospitalId}`);
+      const savedPk = safeStorage.getItem(`facility-has-panchkarma-${selectedHospitalId}`);
       setHasPanchkarma(savedPk !== null ? savedPk === "true" : true);
 
-      const savedInvEdit = localStorage.getItem(`facility-always-allow-inventory-edit-${selectedHospitalId}`);
+      const savedInvEdit = safeStorage.getItem(`facility-always-allow-inventory-edit-${selectedHospitalId}`);
       setAlwaysAllowInventoryEdit(savedInvEdit !== null ? savedInvEdit === "true" : false);
     } catch (e) {
       setHasIpd(true);
@@ -367,10 +392,10 @@ export default function CalendarEntry({
     }
   }, [selectedHospitalId, activeTab]);
 
-  // Fetch rates dynamically from facility settings stored in localStorage
+  // Fetch rates dynamically from facility settings stored in safeStorage
   const getStoredRates = () => {
     try {
-      const stored = localStorage.getItem(`facility-settings-${selectedHospitalId}`);
+      const stored = safeStorage.getItem(`facility-settings-${selectedHospitalId}`);
       if (stored) {
         const parsed = JSON.parse(stored);
         return {
@@ -379,7 +404,7 @@ export default function CalendarEntry({
         };
       }
     } catch (e) {
-      console.warn("Failed to read stored rates from localStorage", e);
+      console.warn("Failed to read stored rates from safeStorage", e);
     }
     return { opdRate: 5, ipdRate: 10 };
   };
@@ -749,7 +774,7 @@ export default function CalendarEntry({
     try {
       // Offline simulation fallback
       if (!isOnline) {
-        const cached = localStorage.getItem(`offline-report-${selectedHospitalId}-${dateStr}`);
+        const cached = safeStorage.getItem(`offline-report-${selectedHospitalId}-${dateStr}`);
         if (cached) {
           const rep = JSON.parse(cached);
           loadReportIntoState(rep, false);
@@ -971,14 +996,14 @@ export default function CalendarEntry({
 
     // Offline mode simulation
     if (!isOnline) {
-      localStorage.setItem(`offline-report-${hospitalId}-${selectedDate}`, JSON.stringify(pendingReport));
+      safeStorage.setItem(`offline-report-${hospitalId}-${selectedDate}`, JSON.stringify(pendingReport));
       // Add to offline sync queue
-      const queueStr = localStorage.getItem("offline-sync-queue") || "[]";
+      const queueStr = safeStorage.getItem("offline-sync-queue") || "[]";
       const queue = JSON.parse(queueStr);
       // Avoid duplicate
       const filteredQueue = queue.filter((q: any) => q.recordDate !== selectedDate || q.hospitalId !== hospitalId);
       filteredQueue.push(pendingReport);
-      localStorage.setItem("offline-sync-queue", JSON.stringify(filteredQueue));
+      safeStorage.setItem("offline-sync-queue", JSON.stringify(filteredQueue));
 
       onSuccessToast({
         title: "💾 Offline Saved",
@@ -1086,7 +1111,7 @@ export default function CalendarEntry({
 
   // Sync offline queue helper
   const syncOfflineData = async () => {
-    const queueStr = localStorage.getItem("offline-sync-queue");
+    const queueStr = safeStorage.getItem("offline-sync-queue");
     if (!queueStr) return;
     const queue = JSON.parse(queueStr);
     if (queue.length === 0) return;
@@ -1109,7 +1134,7 @@ export default function CalendarEntry({
     }
 
     // Clear queue on success
-    localStorage.removeItem("offline-sync-queue");
+    safeStorage.removeItem("offline-sync-queue");
     onSuccessToast({
       title: "🔄 Auto-Synced Offline Data",
       content: `Successfully synchronized ${successCount} cached daily logs with the Central District Server!`
@@ -2168,7 +2193,7 @@ export default function CalendarEntry({
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-slate-800 text-xs tracking-tight">{cleanName}</span>
                             <span className="text-[9px] bg-slate-50 text-slate-500 font-medium px-1.5 py-0.5 rounded border border-slate-100">
-                              {inv.unit || "Kits"}
+                              {(inv as any).unit || "Kits"}
                             </span>
                           </div>
 

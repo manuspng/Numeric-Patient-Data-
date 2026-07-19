@@ -3,6 +3,31 @@ import { SlidersHorizontal, Info, ShieldCheck, DollarSign, ArrowRight } from "lu
 import { UserProfile } from "../types";
 import { getComponentTheme } from "../utils/theme";
 
+const safeStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return localStorage.getItem(key);
+    } catch (e) {
+      console.warn("Storage access denied for key:", key, e);
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn("Storage write denied for key:", key, e);
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      console.warn("Storage removal denied for key:", key, e);
+    }
+  }
+};
+
 interface FacilitySettingsProps {
   user: UserProfile;
   hospitalId: string;
@@ -27,7 +52,7 @@ export const FacilitySettings: React.FC<FacilitySettingsProps> = ({
   // Load existing settings on mount
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(`facility-settings-${hospitalId}`);
+      const stored = safeStorage.getItem(`facility-settings-${hospitalId}`);
       if (stored) {
         const parsed = JSON.parse(stored);
         setOpdRate(parsed.opd_levy_rate !== undefined ? Number(parsed.opd_levy_rate) : 5);
@@ -37,13 +62,13 @@ export const FacilitySettings: React.FC<FacilitySettingsProps> = ({
         setIpdRate(10);
       }
 
-      const savedIpd = localStorage.getItem(`facility-has-ipd-${hospitalId}`);
+      const savedIpd = safeStorage.getItem(`facility-has-ipd-${hospitalId}`);
       setHasIpd(savedIpd !== null ? savedIpd === "true" : true);
 
-      const savedPk = localStorage.getItem(`facility-has-panchkarma-${hospitalId}`);
+      const savedPk = safeStorage.getItem(`facility-has-panchkarma-${hospitalId}`);
       setHasPanchkarma(savedPk !== null ? savedPk === "true" : true);
 
-      const savedInvEdit = localStorage.getItem(`facility-always-allow-inventory-edit-${hospitalId}`);
+      const savedInvEdit = safeStorage.getItem(`facility-always-allow-inventory-edit-${hospitalId}`);
       setAlwaysAllowInventoryEdit(savedInvEdit !== null ? savedInvEdit === "true" : false);
     } catch (e) {
       console.warn("Failed to load facility settings", e);
@@ -63,10 +88,10 @@ export const FacilitySettings: React.FC<FacilitySettingsProps> = ({
         ipd_levy_rate: ipdRate,
         updatedAt: new Date().toISOString(),
       };
-      localStorage.setItem(`facility-settings-${hospitalId}`, JSON.stringify(settings));
-      localStorage.setItem(`facility-has-ipd-${hospitalId}`, String(hasIpd));
-      localStorage.setItem(`facility-has-panchkarma-${hospitalId}`, String(hasPanchkarma));
-      localStorage.setItem(`facility-always-allow-inventory-edit-${hospitalId}`, String(alwaysAllowInventoryEdit));
+      safeStorage.setItem(`facility-settings-${hospitalId}`, JSON.stringify(settings));
+      safeStorage.setItem(`facility-has-ipd-${hospitalId}`, String(hasIpd));
+      safeStorage.setItem(`facility-has-panchkarma-${hospitalId}`, String(hasPanchkarma));
+      safeStorage.setItem(`facility-always-allow-inventory-edit-${hospitalId}`, String(alwaysAllowInventoryEdit));
       
       setTimeout(() => {
         setIsSaving(false);
