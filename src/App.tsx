@@ -439,11 +439,184 @@ const customFetch = async function (input: any, init?: any) {
           responseData = { success: true };
         }
       }
-      else if (pathname === "/api/mpr/aggregate") {
-        const month = parsedUrl.searchParams.get("month");
-        const monthlyReports = db.dailyReports.filter((r: any) => r.recordDate.startsWith(month || ""));
+      else if (pathname === "/api/mpr/aggregate" || pathname === "/api/mpr/aggregate-custom") {
+        const month = parsedUrl.searchParams.get("month") || "";
+        const targetHospitalId = parsedUrl.searchParams.get("hospitalId") || "";
+        const startDate = parsedUrl.searchParams.get("startDate") || "";
+        const endDate = parsedUrl.searchParams.get("endDate") || "";
+        
+        let monthlyReports = [];
+        if (pathname === "/api/mpr/aggregate-custom") {
+          monthlyReports = db.dailyReports.filter((r: any) => r.recordDate >= startDate && r.recordDate <= endDate);
+        } else {
+          monthlyReports = db.dailyReports.filter((r: any) => r.recordDate.startsWith(month));
+        }
+
+        const activeHospitals = db.hospitals || [];
+
+        const hospitalAggregates = activeHospitals.map((hosp: any) => {
+          const reports = monthlyReports.filter((r: any) => r.hospitalId === hosp.id);
+
+          let opd_male_new = 0, opd_male_old = 0, opd_female_new = 0, opd_female_old = 0;
+          let opd_child_new = 0, opd_child_old = 0, opd_elderly_new = 0, opd_elderly_old = 0;
+          let ipd_admissions = 0, ipd_male_new = 0, ipd_male_old = 0, ipd_female_new = 0, ipd_female_old = 0, ipd_child_new = 0, ipd_child_old = 0;
+          let panchkarma_male = 0, panchkarma_female = 0, panchkarma_child = 0, panchkarma_elderly = 0;
+          let hemoglobin = 0, blood_sugar = 0, malaria = 0, dengue = 0, urine_sugar = 0, urine_albumin = 0, typhoid = 0;
+          let hepatitis_a = 0, hepatitis_b = 0, hepatitis_c = 0, pregnancy_tests = 0;
+          let camp_count = 0, camp_beneficiaries_total = 0, camp_medicines_distributed = 0;
+          let camp_ncd_screenings = 0, camp_ayurvidya_sessions = 0;
+          let campsList: any[] = [];
+
+          reports.forEach((r: any) => {
+            const pm = r.patientMatrix || {};
+            opd_male_new += Number(pm.opd_male_new || 0);
+            opd_male_old += Number(pm.opd_male_old || 0);
+            opd_female_new += Number(pm.opd_female_new || 0);
+            opd_female_old += Number(pm.opd_female_old || 0);
+            opd_child_new += Number(pm.opd_child_new || 0);
+            opd_child_old += Number(pm.opd_child_old || 0);
+            opd_elderly_new += Number(pm.opd_elderly_new || 0);
+            opd_elderly_old += Number(pm.opd_elderly_old || 0);
+
+            ipd_admissions += Number(pm.ipd_admissions || 0);
+            ipd_male_new += Number(pm.ipd_male_new || 0);
+            ipd_male_old += Number(pm.ipd_male_old || 0);
+            ipd_female_new += Number(pm.ipd_female_new || 0);
+            ipd_female_old += Number(pm.ipd_female_old || 0);
+            ipd_child_new += Number(pm.ipd_child_new || 0);
+            ipd_child_old += Number(pm.ipd_child_old || 0);
+
+            panchkarma_male += Number(pm.panchkarma_male || 0);
+            panchkarma_female += Number(pm.panchkarma_female || 0);
+            panchkarma_child += Number(pm.panchkarma_child || 0);
+            panchkarma_elderly += Number(pm.panchkarma_elderly || 0);
+
+            const labs = r.laboratoryData || {};
+            hemoglobin += Number(labs.hemoglobin || 0);
+            blood_sugar += Number(labs.blood_sugar || 0);
+            malaria += Number(labs.malaria || 0);
+            dengue += Number(labs.dengue || 0);
+            urine_sugar += Number(labs.urine_sugar || 0);
+            urine_albumin += Number(labs.urine_albumin || 0);
+            typhoid += Number(labs.typhoid || 0);
+            hepatitis_a += Number(labs.hepatitis_a || 0);
+            hepatitis_b += Number(labs.hepatitis_b || 0);
+            hepatitis_c += Number(labs.hepatitis_c || 0);
+            pregnancy_tests += Number(labs.pregnancy_tests || 0);
+
+            if (r.campData) {
+              camp_count++;
+              camp_beneficiaries_total += Number(r.campData.beneficiaries_total || 0);
+              camp_medicines_distributed += Number(r.campData.medicine_distributed_count || 0);
+              camp_ncd_screenings += Number(r.campData.ncd_screenings || 0);
+              camp_ayurvidya_sessions += Number(r.campData.ayurvidya_sessions || 0);
+              campsList.push({
+                date: r.recordDate,
+                loc: r.campData.village_location || "",
+                male: r.campData.beneficiaries_male || 0,
+                female: r.campData.beneficiaries_female || 0,
+                child: r.campData.beneficiaries_child || 0,
+                total: r.campData.beneficiaries_total || 0,
+                meds: r.campData.medicine_distributed_count || 0,
+                screenings: r.campData.ncd_screenings || 0
+              });
+            }
+          });
+
+          const opd_total = opd_male_new + opd_male_old + opd_female_new + opd_female_old + opd_child_new + opd_child_old + opd_elderly_new + opd_elderly_old;
+          const panchkarma_total = panchkarma_male + panchkarma_female + panchkarma_child + panchkarma_elderly;
+          const total_tests = hemoglobin + blood_sugar + malaria + dengue + urine_sugar + urine_albumin + typhoid + hepatitis_a + hepatitis_b + hepatitis_c + pregnancy_tests;
+
+          return {
+            hospitalId: hosp.id,
+            hospitalName: hosp.name,
+            hospitalType: hosp.type,
+            hospitalCode: hosp.code,
+            hospitalIncharge: hosp.incharge || "",
+            hospitalDistrict: hosp.district || "उधम सिंह नगर",
+            daysSubmitted: reports.length,
+            opd_male_new, opd_male_old, opd_female_new, opd_female_old, opd_child_new, opd_child_old, opd_elderly_new, opd_elderly_old,
+            opd_total,
+            ipd_admissions, ipd_male_new, ipd_male_old, ipd_female_new, ipd_female_old, ipd_child_new, ipd_child_old,
+            avg_bed_occupancy: reports.length > 0 ? Math.round(reports.reduce((acc: number, curr: any) => acc + Number(curr.patientMatrix?.avg_bed_occupancy || 0), 0) / reports.length) : 0,
+            panchkarma_male, panchkarma_female, panchkarma_child, panchkarma_elderly,
+            panchkarma_total,
+            hemoglobin, blood_sugar, urine_sugar, urine_albumin, malaria, dengue, typhoid, hepatitis_a, hepatitis_b, hepatitis_c, pregnancy_tests,
+            total_tests,
+            camp_count, camp_beneficiaries_total, camp_medicines_distributed, camp_ncd_screenings, camp_ayurvidya_sessions,
+            camps: campsList,
+            inventory: [],
+            diseaseTotals: []
+          };
+        });
+
+        const districtTotal = {
+          hospitalId: "district-total",
+          hospitalName: "Consolidated District Total",
+          hospitalType: "ALL",
+          hospitalCode: "DIST-ALL",
+          daysSubmitted: monthlyReports.length,
+          opd_male_new: hospitalAggregates.reduce((s, h) => s + h.opd_male_new, 0),
+          opd_male_old: hospitalAggregates.reduce((s, h) => s + h.opd_male_old, 0),
+          opd_female_new: hospitalAggregates.reduce((s, h) => s + h.opd_female_new, 0),
+          opd_female_old: hospitalAggregates.reduce((s, h) => s + h.opd_female_old, 0),
+          opd_child_new: hospitalAggregates.reduce((s, h) => s + h.opd_child_new, 0),
+          opd_child_old: hospitalAggregates.reduce((s, h) => s + h.opd_child_old, 0),
+          opd_elderly_new: hospitalAggregates.reduce((s, h) => s + h.opd_elderly_new, 0),
+          opd_elderly_old: hospitalAggregates.reduce((s, h) => s + h.opd_elderly_old, 0),
+          opd_total: hospitalAggregates.reduce((s, h) => s + h.opd_total, 0),
+          ipd_admissions: hospitalAggregates.reduce((s, h) => s + h.ipd_admissions, 0),
+          ipd_male_new: hospitalAggregates.reduce((s, h) => s + h.ipd_male_new, 0),
+          ipd_male_old: hospitalAggregates.reduce((s, h) => s + h.ipd_male_old, 0),
+          ipd_female_new: hospitalAggregates.reduce((s, h) => s + h.ipd_female_new, 0),
+          ipd_female_old: hospitalAggregates.reduce((s, h) => s + h.ipd_female_old, 0),
+          ipd_child_new: hospitalAggregates.reduce((s, h) => s + h.ipd_child_new, 0),
+          ipd_child_old: hospitalAggregates.reduce((s, h) => s + h.ipd_child_old, 0),
+          avg_bed_occupancy: hospitalAggregates.length > 0 ? Math.round(hospitalAggregates.reduce((s, h) => s + h.avg_bed_occupancy, 0) / hospitalAggregates.length) : 0,
+          panchkarma_male: hospitalAggregates.reduce((s, h) => s + h.panchkarma_male, 0),
+          panchkarma_female: hospitalAggregates.reduce((s, h) => s + h.panchkarma_female, 0),
+          panchkarma_child: hospitalAggregates.reduce((s, h) => s + h.panchkarma_child, 0),
+          panchkarma_elderly: hospitalAggregates.reduce((s, h) => s + h.panchkarma_elderly, 0),
+          panchkarma_total: hospitalAggregates.reduce((s, h) => s + h.panchkarma_total, 0),
+          hemoglobin: hospitalAggregates.reduce((s, h) => s + h.hemoglobin, 0),
+          blood_sugar: hospitalAggregates.reduce((s, h) => s + h.blood_sugar, 0),
+          urine_sugar: hospitalAggregates.reduce((s, h) => s + h.urine_sugar, 0),
+          urine_albumin: hospitalAggregates.reduce((s, h) => s + h.urine_albumin, 0),
+          malaria: hospitalAggregates.reduce((s, h) => s + h.malaria, 0),
+          dengue: hospitalAggregates.reduce((s, h) => s + h.dengue, 0),
+          typhoid: hospitalAggregates.reduce((s, h) => s + h.typhoid, 0),
+          hepatitis_a: hospitalAggregates.reduce((s, h) => s + h.hepatitis_a, 0),
+          hepatitis_b: hospitalAggregates.reduce((s, h) => s + h.hepatitis_b, 0),
+          hepatitis_c: hospitalAggregates.reduce((s, h) => s + h.hepatitis_c, 0),
+          pregnancy_tests: hospitalAggregates.reduce((s, h) => s + h.pregnancy_tests, 0),
+          total_tests: hospitalAggregates.reduce((s, h) => s + h.total_tests, 0),
+          camp_count: hospitalAggregates.reduce((s, h) => s + h.camp_count, 0),
+          camp_beneficiaries_total: hospitalAggregates.reduce((s, h) => s + h.camp_beneficiaries_total, 0),
+          camp_medicines_distributed: hospitalAggregates.reduce((s, h) => s + h.camp_medicines_distributed, 0),
+          camp_ncd_screenings: hospitalAggregates.reduce((s, h) => s + h.camp_ncd_screenings, 0),
+          camp_ayurvidya_sessions: hospitalAggregates.reduce((s, h) => s + h.camp_ayurvidya_sessions, 0),
+          camps: hospitalAggregates.reduce((acc, h) => acc.concat(h.camps || []), [] as any[])
+        };
+
+        let responseHospitals = hospitalAggregates;
+        let responseTotal = districtTotal;
+
+        if (targetHospitalId) {
+          responseHospitals = hospitalAggregates.filter((h: any) => h.hospitalId === targetHospitalId);
+          if (responseHospitals.length > 0) {
+            responseTotal = {
+              ...responseHospitals[0] as any,
+              hospitalName: responseHospitals[0].hospitalName || "Hospital Consolidated Total",
+              hospitalCode: responseHospitals[0].hospitalCode
+            };
+          }
+        }
+
         responseData = {
           success: true,
+          month,
+          districtTotal: responseTotal,
+          hospitals: responseHospitals,
           reports: monthlyReports
         };
       }

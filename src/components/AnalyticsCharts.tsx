@@ -55,7 +55,7 @@ export default function AnalyticsCharts({ user }: AnalyticsChartsProps) {
     );
   }
 
-  if (!data || data.hospitals.length === 0) {
+  if (!data || !data.hospitals || data.hospitals.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-sm">
         <p className="text-slate-500 font-semibold">No data available for compiling visual dashboards in {month}.</p>
