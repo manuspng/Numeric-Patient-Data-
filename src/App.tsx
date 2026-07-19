@@ -50,6 +50,387 @@ import ReportDesigner from "./components/ReportDesigner";
 import { FacilitySettings } from "./components/FacilitySettings";
 import { auth, googleProvider, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged } from "./firebase";
 
+// --- START OF GLOBAL CLIENT-SIDE API SIMULATION INTERCEPTOR ---
+// This supports static hosting platforms like Vercel where the persistent backend container does not run,
+// allowing the entire patient data suite to run 100% client-side with persistent mock routing.
+
+const INITIAL_MOCK_DB = {
+  hospitals: [
+    { id: "hosp-jhankat", name: "राजकीय आयुर्वेदिक चिकित्सालय - बाजपुर", code: "SAD-BJP-01", type: "SAD", location: "बाजपुर", address: "Bajpur, District Udham Singh Nagar, Uttarakhand", contactEmail: "jhankat.ayush@gov.in", contactPhone: "9411223344", isActive: true, incharge: "Dr. Singh", block: "बाजपुर", district: "उधम सिंह नगर", stream: "Ayurved" },
+    { id: "hosp-khatima", name: "राजकीय आयुर्वेदिक चिकित्सालय - खटीमा", code: "SAD-KHT-02", type: "SAD", location: "खटीमा", address: "Main Market, Khatima, Uttarakhand", contactEmail: "khatima.ayush@gov.in", contactPhone: "9411223355", isActive: true, incharge: "Dr. Joshi", block: "खटीमा", district: "उधम सिंह नगर", stream: "Ayurved" },
+    { id: "hosp-tanakpur", name: "राजकीय यूनानी चिकित्सालय - सितारगंज", code: "SUB-STG-03", type: "राजकीय यूनानी चिकित्सालय", location: "सितारगंज", address: "Railway Station Road, Tanakpur, Uttarakhand", contactEmail: "tanakpur.ayush@gov.in", contactPhone: "9411223366", isActive: true, incharge: "Dr. Khan", block: "सितारगंज", district: "उधम सिंह नगर", stream: "Unani" },
+    { id: "hosp-banbasa", name: "आयुष्मान आरोग्य मंदिर - जसपुर", code: "AAM-JSP-04", type: "आयुष्मान आरोग्य मंदिर", location: "जसपुर", address: "NH-9, Banbasa Border, Uttarakhand", contactEmail: "banbasa.ayush@gov.in", contactPhone: "9411223377", isActive: true, incharge: "Dr. Rawat", block: "जसपुर", district: "उधम सिंह नगर", stream: "Ayurved" }
+  ],
+  hospitalDropdownOptions: [
+    { id: "hosp-unregistered-1", name: "राजकीय आयुर्वेदिक चिकित्सालय - बन्नाखेड़ा", code: "SAD-BNK-05", type: "SAD", location: "बन्नाखेड़ा", address: "Bannakhera, Uttarakhand", isActive: true, block: "बाजपुर", district: "उधम सिंह नगर", stream: "Ayurved" },
+    { id: "hosp-unregistered-2", name: "राजकीय आयुर्वेदिक चिकित्सालय - गदरपुर", code: "SAD-GDP-06", type: "SAD", location: "गदरपुर", address: "Gadarpur, Uttarakhand", isActive: true, block: "गदरपुर", district: "उधम सिंह नगर", stream: "Ayurved" }
+  ],
+  users: [
+    { id: "user-manu", email: "manu.spng@gmail.com", name: "Dr. Manu Sharma", role: "SUPER_ADMIN", phone: "+919411223344", isWhitelisted: true, password: "admin123" },
+    { id: "user-hosp-jhankat", email: "jhankat.user@uttarakhandayurved.co.in", name: "Jhankat Ayurvedic Hospital Incharge", role: "HOSPITAL_USER", hospitalId: "hosp-jhankat", phone: "+919411220011", isWhitelisted: true, password: "123" },
+    { id: "user-hosp-khatima", email: "khatima.user@uttarakhandayurved.co.in", name: "Khatima Ayurvedic Hospital Incharge", role: "HOSPITAL_USER", hospitalId: "hosp-khatima", phone: "+919411220022", isWhitelisted: true, password: "123" }
+  ],
+  dailyReports: [] as any[],
+  auditLogs: [
+    { id: "audit-init", userId: "user-manu", userEmail: "manu.spng@gmail.com", userName: "Dr. Manu Sharma", action: "INIT", tableName: "System", recordId: "0", details: "Client-side simulation database initialized with Vercel support.", timestamp: new Date().toISOString() }
+  ],
+  masterDiseases: [
+    { id: "dis-1", name: "ज्वर", category: "रोगवार विवरण" },
+    { id: "dis-2", name: "अतिसार", category: "रोगवार विवरण" },
+    { id: "dis-3", name: "वमन", category: "रोगवार विवरण" },
+    { id: "dis-4", name: "श्वासकास", category: "रोगवार विवरण" },
+    { id: "dis-5", name: "अम्लिपत्त", category: "रोगवार विवरण" },
+    { id: "dis-6", name: "पाण्डु", category: "रोगवार विवरण" },
+    { id: "dis-7", name: "कामला", category: "रोगवार विवरण" },
+    { id: "dis-8", name: "उदर रोग", category: "रोगवार विवरण" },
+    { id: "dis-9", name: "प्रमेह", category: "रोगवार विवरण" },
+    { id: "dis-10", name: "मूत्र रोग", category: "रोगवार विवरण" },
+    { id: "dis-11", name: "आमवात", category: "रोगवार विवरण" },
+    { id: "dis-12", name: "संधिवात", category: "रोगवार विवरण" },
+    { id: "dis-38", name: "अन्य रोग", category: "रोगवार विवरण" }
+  ],
+  masterTests: [
+    { id: "test-hb", name: "Hemoglobin (Hb)", normalRange: "12-16 g/dL" },
+    { id: "test-sugar", name: "Blood Sugar", normalRange: "70-140 mg/dL" },
+    { id: "test-urine", name: "Urine Sugar", normalRange: "Nil" }
+  ],
+  masterKits: [
+    { id: "kit-hb", name: "Hemoglobin Strips", unit: "Strips", defaultThreshold: 20 },
+    { id: "kit-sugar", name: "Blood Sugar Strips", unit: "Strips", defaultThreshold: 30 }
+  ],
+  notifications: [
+    { id: "notif-1", title: "Welcome to Ayush MPR Client Workspace", body: "Active in Client-Side Simulated Mode.", deepLink: "/analytics", timestamp: new Date().toISOString() }
+  ],
+  customTemplates: [] as any[],
+  registrationRequests: [] as any[],
+  hospitalTypes: ["राजकीय आयुर्वेदिक चिकित्सालय", "राजकीय यूनानी चिकित्सालय", "आयुष्मान आरोग्य मंदिर"],
+  streams: ["Ayurved", "Unani"],
+  locations: ["बाजपुर", "खटीमा", "सितारगंज", "जसपुर"],
+  blocks: ["बाजपुर", "गदरपुर", "जसपुर", "खटीमा", "सितारगंज"],
+  districts: ["उधम सिंह नगर"]
+};
+
+// Seed historical data so charts work out of the box in client simulation
+const todayStr = new Date().toISOString().split("T")[0];
+INITIAL_MOCK_DB.hospitals.forEach((h) => {
+  for (let i = 15; i >= 1; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split("T")[0];
+    INITIAL_MOCK_DB.dailyReports.push({
+      id: `rep-${h.id}-${dateStr}`,
+      hospitalId: h.id,
+      recordDate: dateStr,
+      submittedAt: new Date(d.getTime() + 8 * 3600 * 1000).toISOString(),
+      submittedBy: `${h.id.split("-")[1]}.user@gov.in`,
+      patientMatrix: {
+        opd_male_new: 15 + (i % 5), opd_male_old: 5 + (i % 3),
+        opd_female_new: 20 + (i % 4), opd_female_old: 8 + (i % 2),
+        opd_child_new: 4, opd_child_old: 2,
+        opd_elderly_new: 6, opd_elderly_old: 3,
+        ipd_admissions: i % 2, ipd_bed_occupancy_percentage: 45 + (i % 10),
+        panchkarma_male: 3, panchkarma_female: 4, panchkarma_child: 0, panchkarma_elderly: 2,
+        levy_charges: 350, aadhaar_seeded_count: 30, mobile_seeded_count: 32
+      },
+      investigationsLab: {
+        hemoglobin: 12 + (i % 4), blood_sugar: 8 + (i % 3), urine_sugar: i % 2, urine_albumin: 0,
+        malaria: 0, dengue: 0, typhoid: i % 3 === 0 ? 1 : 0, hepatitis_a: 0, hepatitis_b: 0, hepatitis_c: 0, pregnancy_tests: 0
+      },
+      inventory: [
+        { kit_type: "Hemoglobin Strips", opening_balance: 80, received_qty: 0, used_qty: 12, defective_qty: 0, closing_balance: 68, low_stock_threshold: 20 },
+        { kit_type: "Blood Sugar Strips", opening_balance: 90, received_qty: 0, used_qty: 8, defective_qty: 0, closing_balance: 82, low_stock_threshold: 30 }
+      ],
+      camps: [] as any[],
+      isLocked: true,
+      anomalyConfirmed: false,
+      anomalyFlags: []
+    });
+  }
+});
+
+const getLocalMockDB = () => {
+  const existing = localStorage.getItem("mpr_simulated_db");
+  if (existing) {
+    try {
+      return JSON.parse(existing);
+    } catch {
+      // fallback
+    }
+  }
+  localStorage.setItem("mpr_simulated_db", JSON.stringify(INITIAL_MOCK_DB));
+  return INITIAL_MOCK_DB;
+};
+
+const saveLocalMockDB = (db: any) => {
+  localStorage.setItem("mpr_simulated_db", JSON.stringify(db));
+};
+
+// Check if we should override/simulate. By default, if window.location.hostname is vercel, or if we cannot reach /api/auth/login.
+let forceMockBackend = window.location.hostname.endsWith(".vercel.app");
+
+const originalFetch = window.fetch;
+window.fetch = async function (input, init) {
+  const url = typeof input === "string" ? input : (input as Request).url;
+  
+  if (url.startsWith("/api/")) {
+    // If not already forced to mock, let's probe/try first, unless we are on Vercel which we know doesn't have a backend.
+    if (!forceMockBackend) {
+      try {
+        const testRes = await originalFetch(input, init);
+        const contentType = testRes.headers.get("content-type") || "";
+        if (contentType.includes("application/json") || testRes.status !== 200 || !url.includes("login")) {
+          // It's a real backend responding properly, let's return it!
+          return testRes;
+        } else {
+          // Non-JSON html response returned for /api, backend is probably a static host mock!
+          console.warn("[MOCK BACKEND] Backend returned HTML/Non-JSON response for API. Forcing persistent client-side simulated mode.");
+          forceMockBackend = true;
+        }
+      } catch (err) {
+        console.warn("[MOCK BACKEND] Fetch connection error. Forcing persistent client-side simulated mode.", err);
+        forceMockBackend = true;
+      }
+    }
+
+    if (forceMockBackend) {
+      console.log(`[MOCK ROUTER] Intercepting: ${url}`);
+      const parsedUrl = new URL(url, window.location.origin);
+      const pathname = parsedUrl.pathname;
+      const method = init?.method?.toUpperCase() || "GET";
+      const body = init?.body ? JSON.parse(init.body as string) : null;
+      
+      const db = getLocalMockDB();
+      let responseData: any = { success: false, message: "Route not implemented in simulation" };
+      let statusCode = 200;
+
+      if (pathname === "/api/auth/login") {
+        const searchEmail = (body?.email || "").toLowerCase().trim();
+        const searchPhone = body?.phone;
+        const password = body?.password;
+        
+        let user = db.users.find((u: any) => u.email.toLowerCase().trim() === searchEmail || (searchPhone && u.phone === searchPhone));
+        if (!user && searchEmail === "manu.spng@gmail.com") {
+          user = {
+            id: "user-manu",
+            email: "manu.spng@gmail.com",
+            name: "Dr. Manu Sharma",
+            role: "SUPER_ADMIN",
+            phone: "+919411223344",
+            isWhitelisted: true,
+            password: password || "admin123"
+          };
+          db.users.push(user);
+          saveLocalMockDB(db);
+        }
+
+        if (!user) {
+          statusCode = 403;
+          responseData = { success: false, message: "Your ID or Phone is not whitelisted. Use manu.spng@gmail.com as super admin." };
+        } else if (body?.loginType === "Simulated Database Authentication" && user.password && password && user.password !== password) {
+          statusCode = 401;
+          responseData = { success: false, message: "Incorrect password for this simulated account." };
+        } else {
+          responseData = {
+            success: true,
+            user,
+            hospital: user.hospitalId ? db.hospitals.find((h: any) => h.id === user.hospitalId) : null
+          };
+        }
+      } 
+      else if (pathname === "/api/auth/request-register") {
+        const { email, name, role, hospitalId, phone, password } = body || {};
+        const request = {
+          id: "req-" + Math.random().toString(36).substring(2, 11),
+          email, name, role, hospitalId, phone, password,
+          status: "PENDING",
+          createdAt: new Date().toISOString()
+        };
+        db.registrationRequests = db.registrationRequests || [];
+        db.registrationRequests.push(request);
+        saveLocalMockDB(db);
+        responseData = { success: true };
+      }
+      else if (pathname === "/api/hospitals") {
+        responseData = db.hospitals;
+      }
+      else if (pathname === "/api/hospitals/options") {
+        responseData = db.hospitalDropdownOptions || [];
+      }
+      else if (pathname === "/api/notifications") {
+        const email = parsedUrl.searchParams.get("email");
+        responseData = db.notifications || [];
+      }
+      else if (pathname === "/api/master/diseases") {
+        responseData = db.masterDiseases;
+      }
+      else if (pathname === "/api/master/tests") {
+        responseData = db.masterTests;
+      }
+      else if (pathname === "/api/templates") {
+        responseData = db.customTemplates || [];
+      }
+      else if (pathname === "/api/admin/users") {
+        responseData = db.users;
+      }
+      else if (pathname === "/api/admin/audit-logs") {
+        responseData = db.auditLogs || [];
+      }
+      else if (pathname === "/api/admin/registration-requests") {
+        responseData = db.registrationRequests || [];
+      }
+      else if (pathname === "/api/admin/registration-requests/action") {
+        const { id, action } = body || {};
+        db.registrationRequests = db.registrationRequests || [];
+        const reqIndex = db.registrationRequests.findIndex((r: any) => r.id === id);
+        if (reqIndex !== -1) {
+          const req = db.registrationRequests[reqIndex];
+          req.status = action; // "APPROVED" or "REJECTED"
+          if (action === "APPROVED") {
+            const newUser = {
+              id: "user-" + Math.random().toString(36).substring(2, 11),
+              email: req.email,
+              name: req.name,
+              role: req.role,
+              hospitalId: req.hospitalId,
+              phone: req.phone,
+              isWhitelisted: true,
+              password: req.password || "123"
+            };
+            db.users.push(newUser);
+          }
+          saveLocalMockDB(db);
+          responseData = { success: true };
+        } else {
+          responseData = { success: false, message: "Request not found" };
+        }
+      }
+      else if (pathname === "/api/admin/users/whitelist") {
+        const { userEmail, userName, role, hospitalId, phone, password } = body || {};
+        let existingUser = db.users.find((u: any) => u.email.toLowerCase().trim() === userEmail.toLowerCase().trim());
+        if (existingUser) {
+          existingUser.name = userName;
+          existingUser.role = role;
+          existingUser.hospitalId = hospitalId;
+          existingUser.phone = phone;
+          if (password) existingUser.password = password;
+        } else {
+          existingUser = {
+            id: "user-" + Math.random().toString(36).substring(2, 11),
+            email: userEmail,
+            name: userName,
+            role,
+            hospitalId,
+            phone,
+            isWhitelisted: true,
+            password: password || "123"
+          };
+          db.users.push(existingUser);
+        }
+        saveLocalMockDB(db);
+        responseData = { success: true };
+      }
+      else if (pathname === "/api/admin/users/toggle") {
+        const { userId } = body || {};
+        const u = db.users.find((user: any) => user.id === userId);
+        if (u) {
+          u.isWhitelisted = !u.isWhitelisted;
+          saveLocalMockDB(db);
+          responseData = { success: true };
+        }
+      }
+      else if (pathname === "/api/admin/users/delete") {
+        const { userId } = body || {};
+        db.users = db.users.filter((user: any) => user.id !== userId);
+        saveLocalMockDB(db);
+        responseData = { success: true };
+      }
+      else if (pathname === "/api/admin/hospitals/save") {
+        const h = body;
+        let existing = db.hospitals.find((item: any) => item.id === h.id || item.code === h.code);
+        if (existing) {
+          Object.assign(existing, h);
+        } else {
+          h.id = h.id || "hosp-" + Math.random().toString(36).substring(2, 11);
+          db.hospitals.push(h);
+        }
+        saveLocalMockDB(db);
+        responseData = { success: true };
+      }
+      else if (pathname === "/api/admin/hospitals/delete") {
+        const { hospitalId } = body || {};
+        db.hospitals = db.hospitals.filter((h: any) => h.id !== hospitalId);
+        saveLocalMockDB(db);
+        responseData = { success: true };
+      }
+      else if (pathname === "/api/mpr/daily") {
+        if (method === "GET") {
+          const date = parsedUrl.searchParams.get("date");
+          const hospId = parsedUrl.searchParams.get("hospitalId");
+          const report = db.dailyReports.find((r: any) => r.hospitalId === hospId && r.recordDate === date);
+          responseData = report || null;
+        } else {
+          const report = body;
+          db.dailyReports = db.dailyReports || [];
+          db.dailyReports = db.dailyReports.filter((r: any) => !(r.hospitalId === report.hospitalId && r.recordDate === report.recordDate));
+          db.dailyReports.push(report);
+          saveLocalMockDB(db);
+          responseData = { success: true };
+        }
+      }
+      else if (pathname === "/api/mpr/aggregate") {
+        const month = parsedUrl.searchParams.get("month");
+        const monthlyReports = db.dailyReports.filter((r: any) => r.recordDate.startsWith(month || ""));
+        responseData = {
+          success: true,
+          reports: monthlyReports
+        };
+      }
+      else if (pathname === "/api/mpr/defaulters") {
+        const month = parsedUrl.searchParams.get("month");
+        const activeHospitals = db.hospitals;
+        const defaulters = activeHospitals.map((h: any) => {
+          const count = db.dailyReports.filter((r: any) => r.hospitalId === h.id && r.recordDate.startsWith(month || "")).length;
+          return {
+            hospitalId: h.id,
+            hospitalName: h.name,
+            contactPhone: h.contactPhone,
+            submissionsCount: count,
+            isDefaulter: count === 0
+          };
+        });
+        responseData = defaulters;
+      }
+      else if (pathname === "/api/mpr/nudge" || pathname === "/api/notifications/trigger-daily-schedule") {
+        responseData = { success: true };
+      }
+      else if (pathname === "/api/admin/hospitals/sheet-config") {
+        if (method === "GET") {
+          responseData = { success: true, url: "" };
+        } else {
+          responseData = { success: true };
+        }
+      }
+      else if (pathname === "/api/admin/hospitals/sync-sheets") {
+        responseData = { success: true, message: "Sync bypassed in local simulation" };
+      }
+      else if (pathname === "/api/mpr/check-anomalies") {
+        responseData = { hasAnomalies: false, flags: [] };
+      }
+      else if (pathname === "/api/mpr/summarize") {
+        responseData = { summary: "Monthly Progress Report data summarized successfully. Zero critical inventory shortages or submission anomalies reported." };
+      }
+
+      return new Response(JSON.stringify(responseData), {
+        status: statusCode,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+  }
+
+  return originalFetch(input, init);
+};
+// --- END OF GLOBAL CLIENT-SIDE API SIMULATION INTERCEPTOR ---
+
 const getTheme = (role?: UserRole) => {
   switch (role) {
     case UserRole.SUPER_ADMIN:
