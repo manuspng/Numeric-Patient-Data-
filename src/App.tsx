@@ -1199,16 +1199,6 @@ export default function App() {
                     </svg>
                   </button>
                 </div>
-
-                <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl space-y-2">
-                  <p className="text-[11px] text-amber-900 font-bold leading-relaxed flex items-center gap-1.5">
-                    <span>⚠️</span> Iframe Browser Cookie Policy Detected
-                  </p>
-                  <p className="text-[10.5px] text-amber-800 leading-relaxed">
-                    Google Sign-In popups can be restricted inside embedded preview frames because modern browsers block third-party cookies by default.
-                  </p>
-                </div>
-
                 <div className="space-y-4">
                   <p className="text-[11px] text-slate-600 font-medium">
                     Because this is your secure local workspace, you can authenticate directly as any whitelisted email below without a password.
