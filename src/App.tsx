@@ -975,6 +975,31 @@ export default function App() {
   const [regError, setRegError] = useState("");
   const [hospitalsList, setHospitalsList] = useState<Hospital[]>([]);
   const [hospitalDropdownOptions, setHospitalDropdownOptions] = useState<Hospital[]>([]);
+  const [regType, setRegType] = useState("");
+  const [regLocation, setRegLocation] = useState("");
+  const [regBlock, setRegBlock] = useState("");
+
+  const activeHospital = user?.hospitalId
+    ? (hospitalsList.find((h: any) => h.id === user.hospitalId) || hospital)
+    : hospital;
+
+  useEffect(() => {
+    if (regRole === UserRole.HOSPITAL_USER && regType && regLocation && regBlock) {
+      const allHospitals = [...hospitalsList, ...hospitalDropdownOptions];
+      const matched = allHospitals.find(h => 
+        (regType === "राजकीय आयुर्वेदिक चिकित्सालय" ? (h.type === "SAD" || h.type === "राजकीय आयुर्वेदिक चिकित्सालय") : h.type === regType) &&
+        h.location === regLocation &&
+        h.block === regBlock
+      );
+      if (matched) {
+        setRegHospitalId(matched.id);
+      } else {
+        setRegHospitalId("");
+      }
+    } else {
+      setRegHospitalId("");
+    }
+  }, [regType, regLocation, regBlock, regRole, hospitalsList, hospitalDropdownOptions]);
 
   // Custom logo state & modal visibility state
   const [customLogo, setCustomLogo] = useState<string | null>(() => {
@@ -1682,6 +1707,9 @@ export default function App() {
                       setRegPassword("");
                       setRegRole(UserRole.HOSPITAL_USER);
                       setRegHospitalId("");
+                      setRegType("");
+                      setRegLocation("");
+                      setRegBlock("");
                       setRegError("");
                     }}
                     className="w-full bg-slate-50 hover:bg-emerald-50 hover:text-emerald-800 text-slate-600 border border-slate-200 hover:border-emerald-200 text-[11px] font-extrabold py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-sm"
@@ -1697,18 +1725,34 @@ export default function App() {
 
           {/* REQUEST TO REGISTER DIALOG MODAL */}
           {isRequestingRegister && (() => {
-            const allRegCategories = Array.from(new Set([
-              ...hospitalsList.map(h => (h as any).category),
-              ...hospitalDropdownOptions.map(h => (h as any).category)
-            ].filter(Boolean))).sort() as string[];
+            const allHospitals = [...hospitalsList, ...hospitalDropdownOptions];
+            const uniqueHospitalTypes = Array.from(new Set([
+              ...allHospitals.map(h => h.type === "SAD" ? "राजकीय आयुर्वेदिक चिकित्सालय" : h.type).filter(Boolean),
+              "राजकीय आयुर्वेदिक चिकित्सालय",
+              "राजकीय यूनानी चिकित्सालय",
+              "आयुष्मान आरोग्य मंदिर"
+            ]));
 
-            const filteredDropdownOptions = regFilterCategory 
-              ? hospitalDropdownOptions.filter(h => (h as any).category === regFilterCategory)
-              : hospitalDropdownOptions;
+            const availableLocations = Array.from(new Set(
+              allHospitals
+                .filter(h => !regType || (regType === "राजकीय आयुर्वेदिक चिकित्सालय" ? (h.type === "SAD" || h.type === "राजकीय आयुर्वेदिक चिकित्सालय") : h.type === regType))
+                .map(h => h.location)
+                .filter(Boolean)
+            )).sort() as string[];
 
-            const filteredHospitalsList = regFilterCategory
-              ? hospitalsList.filter(h => (h as any).category === regFilterCategory)
-              : hospitalsList;
+            const locationsToDisplay = availableLocations.length > 0 ? availableLocations : INITIAL_MOCK_DB.locations;
+
+            const availableBlocks = Array.from(new Set(
+              allHospitals
+                .filter(h => 
+                  (!regType || (regType === "राजकीय आयुर्वेदिक चिकित्सालय" ? (h.type === "SAD" || h.type === "राजकीय आयुर्वेदिक चिकित्सालय") : h.type === regType)) &&
+                  (!regLocation || h.location === regLocation)
+                )
+                .map(h => h.block)
+                .filter(Boolean)
+            )).sort() as string[];
+
+            const blocksToDisplay = availableBlocks.length > 0 ? availableBlocks : INITIAL_MOCK_DB.blocks;
 
             return (
               <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
@@ -1722,6 +1766,9 @@ export default function App() {
                       onClick={() => {
                         setIsRequestingRegister(false);
                         setRegFilterCategory("");
+                        setRegType("");
+                        setRegLocation("");
+                        setRegBlock("");
                       }}
                       className="p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
                     >
@@ -1803,54 +1850,82 @@ export default function App() {
 
                       {regRole === UserRole.HOSPITAL_USER && (
                         <div className="space-y-4">
-                          {allRegCategories.length > 0 && (
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Filter by Category (श्रेणी के अनुसार फिल्टर करें)</label>
-                              <select
-                                value={regFilterCategory}
-                                onChange={(e) => {
-                                  setRegFilterCategory(e.target.value);
-                                  setRegHospitalId("");
-                                }}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-semibold focus:border-emerald-500 outline-none transition-colors"
-                              >
-                                <option value="">All Categories (सभी श्रेणियां)</option>
-                                {allRegCategories.map((cat) => (
-                                  <option key={cat} value={cat}>{cat}</option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Assigned Hospital (चिकित्सालय चयन)*</label>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5" htmlFor="reg-type-select">
+                              Type of Hospital (चिकित्सालय वर्ग)*
+                            </label>
                             <select
                               required
-                              value={regHospitalId}
-                              onChange={(e) => setRegHospitalId(e.target.value)}
+                              id="reg-type-select"
+                              value={regType}
+                              onChange={(e) => {
+                                setRegType(e.target.value);
+                                setRegLocation("");
+                                setRegBlock("");
+                              }}
                               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-semibold focus:border-emerald-500 outline-none transition-colors"
                             >
-                              <option value="">-- Choose Hospital --</option>
-                              {filteredDropdownOptions.length > 0 && (
-                                <optgroup label="🏥 Available for Registration (पंजीकरण हेतु उपलब्ध)">
-                                  {filteredDropdownOptions.map((h) => (
-                                    <option key={h.id} value={h.id}>
-                                      {h.name} {h.category ? `[${h.category}]` : ""}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              )}
-                              {filteredHospitalsList.length > 0 && (
-                                <optgroup label="✅ Already Registered Profiles (पहले से पंजीकृत)">
-                                  {filteredHospitalsList.map((h) => (
-                                    <option key={h.id} value={h.id}>
-                                      {h.name} {h.category ? `[${h.category}]` : ""}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              )}
+                              <option value="">-- Choose Type of Hospital --</option>
+                              {uniqueHospitalTypes.map((type) => (
+                                <option key={type} value={type}>
+                                  {type}
+                                </option>
+                              ))}
                             </select>
                           </div>
+
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5" htmlFor="reg-location-select">
+                              Location (स्थान)*
+                            </label>
+                            <select
+                              required
+                              id="reg-location-select"
+                              value={regLocation}
+                              disabled={!regType}
+                              onChange={(e) => {
+                                setRegLocation(e.target.value);
+                                setRegBlock("");
+                              }}
+                              className={`w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-semibold focus:border-emerald-500 outline-none transition-colors ${!regType ? "opacity-50 cursor-not-allowed" : ""}`}
+                            >
+                              <option value="">-- Choose Location --</option>
+                              {locationsToDisplay.map((loc) => (
+                                <option key={loc} value={loc}>
+                                  {loc}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5" htmlFor="reg-block-select">
+                              Block (विकासखंड)*
+                            </label>
+                            <select
+                              required
+                              id="reg-block-select"
+                              value={regBlock}
+                              disabled={!regLocation}
+                              onChange={(e) => setRegBlock(e.target.value)}
+                              className={`w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-semibold focus:border-emerald-500 outline-none transition-colors ${!regLocation ? "opacity-50 cursor-not-allowed" : ""}`}
+                            >
+                              <option value="">-- Choose Block --</option>
+                              {blocksToDisplay.map((blk) => (
+                                <option key={blk} value={blk}>
+                                  {blk}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {regHospitalId && (
+                            <div className="bg-emerald-50 text-emerald-800 border border-emerald-150 p-3 rounded-xl text-xs font-semibold animate-in fade-in duration-200" id="matched-facility-preview">
+                              📍 Matched Facility: <span className="underline font-bold">
+                                {[...hospitalsList, ...hospitalDropdownOptions].find(h => h.id === regHospitalId)?.name || ""}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2033,18 +2108,18 @@ export default function App() {
                   <span className={`text-[10px] uppercase font-bold tracking-widest ${theme.accentText} block leading-none mb-1`}>
                     FACILITY LOGIN
                   </span>
-                  <h1 className={`font-black tracking-tight text-xs uppercase leading-snug truncate ${theme.sidebarHeadingColor || 'text-emerald-50'}`} title={
+                  <h1 id="facility-name-heading" className={`font-black tracking-tight text-xs uppercase leading-snug truncate ${theme.sidebarHeadingColor || 'text-emerald-50'}`} title={
                     user.role === UserRole.SUPER_ADMIN
                       ? "Admin"
                       : user.role === UserRole.OFFICE_ADMIN
                       ? "District ayurvedic & Unani Office"
-                      : (hospital?.name || "Jhankat Ayurvedic Hospital")
+                      : (activeHospital?.name || hospital?.name || "")
                   }>
                     {user.role === UserRole.SUPER_ADMIN
                       ? "Admin"
                       : user.role === UserRole.OFFICE_ADMIN
                       ? "District Office"
-                      : (hospital?.name || "Jhankat Ayurvedic Hospital")}
+                      : (activeHospital?.name || hospital?.name || "")}
                   </h1>
                 </div>
               </div>
@@ -2389,8 +2464,8 @@ export default function App() {
                   <div className={activeTab === "settings" ? "block" : "hidden"}>
                     <FacilitySettings
                       user={user}
-                      hospitalId={hospital?.id || "hosp-jhankat"}
-                      hospitalName={hospital?.name || "Jhankat Ayurvedic Hospital"}
+                      hospitalId={activeHospital?.id || hospital?.id || "hosp-jhankat"}
+                      hospitalName={activeHospital?.name || hospital?.name || "Jhankat Ayurvedic Hospital"}
                       onSuccessToast={showToast}
                     />
                   </div>
