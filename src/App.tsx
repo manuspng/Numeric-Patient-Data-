@@ -48,7 +48,8 @@ import DefaulterDashboard from "./components/DefaulterDashboard";
 import AdminMasterTables from "./components/AdminMasterTables";
 import ReportDesigner from "./components/ReportDesigner";
 import { FacilitySettings } from "./components/FacilitySettings";
-import { auth, googleProvider, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged } from "./firebase";
+import { auth, googleProvider, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, db as firestoreDb } from "./firebase";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 // --- START OF SAFE STORAGE HELPER ---
 // Handles environments where third-party frames or private windows block access to localStorage, preventing crash.
@@ -273,27 +274,72 @@ const customFetch = async function (input: any, init?: any) {
         const password = body?.password;
         
         let user = db.users.find((u: any) => u.email.toLowerCase().trim() === searchEmail || (searchPhone && u.phone === searchPhone));
-        if (!user && searchEmail === "manu.spng@gmail.com") {
+        
+        // Try querying real Firestore
+        if (!user && searchEmail) {
+          try {
+            const docId = searchEmail.replace(/[^a-z0-9_.-]/g, "_");
+            const docSnap = await getDoc(doc(firestoreDb, "users", docId));
+            if (docSnap.exists()) {
+              user = docSnap.data();
+              if (user) {
+                user.isWhitelisted = true;
+                db.users.push(user);
+                saveLocalMockDB(db);
+              }
+            }
+          } catch (firestoreErr) {
+            console.warn("Could not retrieve user from Firestore in customFetch login:", firestoreErr);
+          }
+        }
+
+        // Auto-create helper if user is authenticated via Firebase or we are the super admin
+        if (!user && (body?.loginType?.includes("Firebase") || searchEmail === "manu.spng@gmail.com")) {
           user = {
-            id: "user-manu",
-            email: "manu.spng@gmail.com",
-            name: "Dr. Manu Sharma",
-            role: "SUPER_ADMIN",
-            phone: "+919411223344",
+            id: "user-" + (searchEmail === "manu.spng@gmail.com" ? "manu" : Math.random().toString(36).substring(2, 11)),
+            email: searchEmail,
+            name: searchEmail === "manu.spng@gmail.com" ? "Dr. Manu Sharma" : searchEmail.split("@")[0],
+            role: searchEmail === "manu.spng@gmail.com" ? "SUPER_ADMIN" : "HOSPITAL_USER",
+            phone: searchPhone || "",
             isWhitelisted: true,
-            password: password || "admin123"
+            password: password || (searchEmail === "manu.spng@gmail.com" ? "admin123" : "123")
           };
           db.users.push(user);
           saveLocalMockDB(db);
+          try {
+            const docId = searchEmail.replace(/[^a-z0-9_.-]/g, "_");
+            await setDoc(doc(firestoreDb, "users", docId), user);
+          } catch (writeErr) {
+            console.warn("Could not save auto-created user to Firestore in customFetch login:", writeErr);
+          }
         }
 
+        // Ultimate fallback to allow logging in any user prefix since whitelisting constraint is removed
         if (!user) {
-          statusCode = 403;
-          responseData = { success: false, message: "Your ID or Phone is not whitelisted. Use manu.spng@gmail.com as super admin." };
-        } else if (body?.loginType === "Simulated Database Authentication" && user.password && password && user.password !== password) {
+          user = {
+            id: "user-" + Math.random().toString(36).substring(2, 11),
+            email: searchEmail,
+            name: searchEmail.split("@")[0],
+            role: "HOSPITAL_USER",
+            phone: searchPhone || "",
+            isWhitelisted: true,
+            password: password || "123"
+          };
+          db.users.push(user);
+          saveLocalMockDB(db);
+          try {
+            const docId = searchEmail.replace(/[^a-z0-9_.-]/g, "_");
+            await setDoc(doc(firestoreDb, "users", docId), user);
+          } catch (writeErr) {
+            console.warn("Could not save auto-created user to Firestore on fallback:", writeErr);
+          }
+        }
+
+        if (body?.loginType === "Simulated Database Authentication" && user.password && password && user.password !== password) {
           statusCode = 401;
           responseData = { success: false, message: "Incorrect password for this simulated account." };
         } else {
+          user.isWhitelisted = true;
           responseData = {
             success: true,
             user,

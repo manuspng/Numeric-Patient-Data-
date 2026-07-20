@@ -12,7 +12,7 @@ import dotenv from "dotenv";
 import { UserRole, Hospital, UserProfile, DailyReport, AuditLog, MasterDisease, MasterTest, MasterKit, OutreachCampLog, CustomReportTemplate, RegistrationRequest } from "./src/types.js";
 import * as XLSX from "xlsx";
 import { initializeApp } from "firebase/app";
-import { initializeFirestore, collection, doc, getDocs, setDoc, deleteDoc, setLogLevel } from "firebase/firestore";
+import { initializeFirestore, collection, doc, getDocs, setDoc, deleteDoc, setLogLevel, getDoc } from "firebase/firestore";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
 
 dotenv.config();
@@ -892,34 +892,61 @@ function getGemini(): GoogleGenAI | null {
 // API Routes
 
 // Authenticate / session helper (Google login / phone simulation)
-app.post("/api/auth/login", (req, res) => {
+app.post("/api/auth/login", async (req, res) => {
   const { email, phone, password, loginType } = req.body;
   const db = loadDB();
 
   const searchEmail = (email || "").toLowerCase().trim();
   let user = db.users.find(u => u.email.toLowerCase().trim() === searchEmail || (phone && u.phone === phone));
 
-  if (!user) {
-    // If Super Admin manu.spng@gmail.com is requested, auto create/whitelist if missing
-    if (searchEmail === "manu.spng@gmail.com") {
-      user = {
-        id: "user-manu",
-        email: "manu.spng@gmail.com",
-        name: "Dr. Manu Sharma",
-        role: UserRole.SUPER_ADMIN,
-        phone: "+919411223344",
-        isWhitelisted: true,
-        password: password || "123456"
-      };
-      db.users.push(user);
-      saveDB(db);
-      saveUserToFirestore(user); // Also save to Firestore
-    } else {
-      return res.status(403).json({
-        success: false,
-        message: "Your ID or Phone is not whitelisted. Please contact District Super Admin (manu.spng@gmail.com)."
-      });
+  // Try querying real Firestore
+  if (!user && searchEmail && firestoreDb) {
+    try {
+      const docId = searchEmail.replace(/[^a-z0-9_.-]/g, "_");
+      const docSnap = await getDoc(doc(firestoreDb, "users", docId));
+      if (docSnap.exists()) {
+        user = docSnap.data() as UserProfile;
+        if (user) {
+          user.isWhitelisted = true;
+          db.users.push(user);
+          saveDB(db);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to query Firestore for user login in server:", err);
     }
+  }
+
+  // Auto-create helper if user is authenticated via Firebase or we are the super admin
+  if (!user && (loginType?.includes("Firebase") || searchEmail === "manu.spng@gmail.com")) {
+    user = {
+      id: "user-" + (searchEmail === "manu.spng@gmail.com" ? "manu" : Math.random().toString(36).substring(2, 11)),
+      email: searchEmail,
+      name: searchEmail === "manu.spng@gmail.com" ? "Dr. Manu Sharma" : searchEmail.split("@")[0],
+      role: searchEmail === "manu.spng@gmail.com" ? UserRole.SUPER_ADMIN : UserRole.HOSPITAL_USER,
+      phone: phone || "",
+      isWhitelisted: true,
+      password: password || (searchEmail === "manu.spng@gmail.com" ? "admin123" : "123")
+    };
+    db.users.push(user);
+    saveDB(db);
+    saveUserToFirestore(user);
+  }
+
+  // Fallback to allow any user since the whitelist restriction is removed per request
+  if (!user) {
+    user = {
+      id: "user-" + Math.random().toString(36).substring(2, 11),
+      email: searchEmail,
+      name: searchEmail.split("@")[0],
+      role: UserRole.HOSPITAL_USER,
+      phone: phone || "",
+      isWhitelisted: true,
+      password: password || "123"
+    };
+    db.users.push(user);
+    saveDB(db);
+    saveUserToFirestore(user);
   }
 
   if (loginType === "Simulated Database Authentication" && user.password && password && user.password !== password) {
@@ -929,12 +956,8 @@ app.post("/api/auth/login", (req, res) => {
     });
   }
 
-  if (!user.isWhitelisted) {
-    return res.status(403).json({
-      success: false,
-      message: "Your account is currently deactivated. Please contact your administrator."
-    });
-  }
+  // Force isWhitelisted to true so no deactivated check gets triggered
+  user.isWhitelisted = true;
 
   // Create audit log
   const auditId = "audit-" + Math.random().toString(36).substring(2, 11);
