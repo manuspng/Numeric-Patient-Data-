@@ -89,11 +89,7 @@ const INITIAL_MOCK_DB = {
     { id: "hosp-unregistered-1", name: "राजकीय आयुर्वेदिक चिकित्सालय - बन्नाखेड़ा", code: "SAD-BNK-05", type: "SAD", location: "बन्नाखेड़ा", address: "Bannakhera, Uttarakhand", isActive: true, block: "बाजपुर", district: "उधम सिंह नगर", stream: "Ayurved" },
     { id: "hosp-unregistered-2", name: "राजकीय आयुर्वेदिक चिकित्सालय - गदरपुर", code: "SAD-GDP-06", type: "SAD", location: "गदरपुर", address: "Gadarpur, Uttarakhand", isActive: true, block: "गदरपुर", district: "उधम सिंह नगर", stream: "Ayurved" }
   ],
-  users: [
-    { id: "user-manu", email: "manu.spng@gmail.com", name: "Dr. Manu Sharma", role: "SUPER_ADMIN", phone: "+919411223344", isWhitelisted: true, password: "admin123" },
-    { id: "user-hosp-jhankat", email: "jhankat.user@uttarakhandayurved.co.in", name: "Jhankat Ayurvedic Hospital Incharge", role: "HOSPITAL_USER", hospitalId: "hosp-jhankat", phone: "+919411220011", isWhitelisted: true, password: "123" },
-    { id: "user-hosp-khatima", email: "khatima.user@uttarakhandayurved.co.in", name: "Khatima Ayurvedic Hospital Incharge", role: "HOSPITAL_USER", hospitalId: "hosp-khatima", phone: "+919411220022", isWhitelisted: true, password: "123" }
-  ],
+  users: [] as any[],
   dailyReports: [] as any[],
   auditLogs: [
     { id: "audit-init", userId: "user-manu", userEmail: "manu.spng@gmail.com", userName: "Dr. Manu Sharma", action: "INIT", tableName: "System", recordId: "0", details: "Client-side simulation database initialized with Vercel support.", timestamp: new Date().toISOString() }
@@ -341,6 +337,42 @@ const customFetch = async function (input: any, init?: any) {
         db.registrationRequests.push(request);
         saveLocalMockDB(db);
         responseData = { success: true };
+      }
+      else if (pathname === "/api/admin/profile/update") {
+        const { email, name, designation, contact, phone } = body || {};
+        const searchEmail = (email || "").toLowerCase().trim();
+        let userProfile = db.users.find((u: any) => u.email.toLowerCase().trim() === searchEmail);
+        
+        if (userProfile) {
+          userProfile.name = name || userProfile.name;
+          userProfile.phone = phone || contact || userProfile.phone;
+          userProfile.designation = designation !== undefined ? designation : userProfile.designation;
+          userProfile.contact = contact !== undefined ? contact : userProfile.contact;
+        } else {
+          userProfile = {
+            id: "user-manu",
+            email: searchEmail,
+            name: name || "Dr. Manu Sharma",
+            role: "SUPER_ADMIN",
+            phone: phone || contact || "",
+            isWhitelisted: true,
+            designation: designation || "",
+            contact: contact || ""
+          };
+          db.users.push(userProfile);
+        }
+        
+        saveLocalMockDB(db);
+        
+        // Save to real Firestore
+        try {
+          const docId = searchEmail.replace(/[^a-z0-9_.-]/g, "_");
+          await setDoc(doc(firestoreDb, "users", docId), userProfile);
+        } catch (firestoreErr) {
+          console.warn("Could not save updated profile to Firestore:", firestoreErr);
+        }
+        
+        responseData = { success: true, user: userProfile };
       }
       else if (pathname === "/api/hospitals") {
         responseData = db.hospitals;
@@ -770,7 +802,7 @@ const getTheme = (role?: UserRole) => {
         onlineBadgeText: "text-[#5C4033]",
         onlineBadgeBorder: "border-[#EADBC8]"
       };
-    case UserRole.OFFICE_ADMIN:
+    case UserRole.DAUO:
       return {
         sidebarBg: "bg-indigo-950 border-indigo-900 text-white",
         sidebarBorder: "border-indigo-900",
@@ -927,7 +959,7 @@ export default function App() {
       const saved = safeStorage.getItem("mpr_user");
       if (saved) {
         const u = JSON.parse(saved);
-        if (u && (u.role === UserRole.OFFICE_ADMIN || u.role === UserRole.SUPER_ADMIN)) {
+        if (u && (u.role === UserRole.DAUO || u.role === UserRole.SUPER_ADMIN)) {
           return "mpr";
         }
       }
@@ -1697,270 +1729,15 @@ export default function App() {
                 </div>
 
                 <div className="pt-2.5 border-t border-slate-100 mt-2 text-center">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsRequestingRegister(true);
-                      setRegName("");
-                      setRegEmail("");
-                      setRegPhone("");
-                      setRegPassword("");
-                      setRegRole(UserRole.HOSPITAL_USER);
-                      setRegHospitalId("");
-                      setRegType("");
-                      setRegLocation("");
-                      setRegBlock("");
-                      setRegError("");
-                    }}
-                    className="w-full bg-slate-50 hover:bg-emerald-50 hover:text-emerald-800 text-slate-600 border border-slate-200 hover:border-emerald-200 text-[11px] font-extrabold py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-sm"
-                    id="request-to-register-btn"
-                  >
-                    <UserPlus className="w-3.5 h-3.5" />
-                    Request to Register
-                  </button>
+                  <div className="text-center py-2.5 px-3 bg-amber-50 rounded-xl border border-amber-200/50 text-[11px] text-amber-800 font-bold leading-relaxed shadow-inner">
+                    🔒 Public registration is disabled. Only the Super Admin can provision new hospital facilities and user logins.
+                  </div>
                 </div>
               </form>
             </div>
           </div>
 
-          {/* REQUEST TO REGISTER DIALOG MODAL */}
-          {isRequestingRegister && (() => {
-            const allHospitals = [...hospitalsList, ...hospitalDropdownOptions];
-            const uniqueHospitalTypes = Array.from(new Set([
-              ...allHospitals.map(h => h.type === "SAD" ? "राजकीय आयुर्वेदिक चिकित्सालय" : h.type).filter(Boolean),
-              "राजकीय आयुर्वेदिक चिकित्सालय",
-              "राजकीय यूनानी चिकित्सालय",
-              "आयुष्मान आरोग्य मंदिर"
-            ]));
 
-            const availableLocations = Array.from(new Set(
-              allHospitals
-                .filter(h => !regType || (regType === "राजकीय आयुर्वेदिक चिकित्सालय" ? (h.type === "SAD" || h.type === "राजकीय आयुर्वेदिक चिकित्सालय") : h.type === regType))
-                .map(h => h.location)
-                .filter(Boolean)
-            )).sort() as string[];
-
-            const locationsToDisplay = availableLocations.length > 0 ? availableLocations : INITIAL_MOCK_DB.locations;
-
-            const availableBlocks = Array.from(new Set(
-              allHospitals
-                .filter(h => 
-                  (!regType || (regType === "राजकीय आयुर्वेदिक चिकित्सालय" ? (h.type === "SAD" || h.type === "राजकीय आयुर्वेदिक चिकित्सालय") : h.type === regType)) &&
-                  (!regLocation || h.location === regLocation)
-                )
-                .map(h => h.block)
-                .filter(Boolean)
-            )).sort() as string[];
-
-            const blocksToDisplay = availableBlocks.length > 0 ? availableBlocks : INITIAL_MOCK_DB.blocks;
-
-            return (
-              <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
-                <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 sm:p-8 space-y-5 border border-slate-100 animate-in zoom-in-95 duration-200 text-left">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div className="flex items-center gap-2">
-                      <UserPlus className="w-5 h-5 text-emerald-700" />
-                      <h3 className="font-extrabold text-slate-950 tracking-tight text-sm uppercase">Submit Access Request</h3>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setIsRequestingRegister(false);
-                        setRegFilterCategory("");
-                        setRegType("");
-                        setRegLocation("");
-                        setRegBlock("");
-                      }}
-                      className="p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
-                    >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-
-                  <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
-                    Fill in your credentials and facility details. Your request will be queued for review. Only approved users verified by the District Administration can access the system.
-                  </p>
-
-                  <form onSubmit={handleRequestRegisterSubmit} className="space-y-4">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Full Name</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. Dr. Rajesh Negi"
-                        value={regName}
-                        onChange={(e) => setRegName(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-semibold focus:border-emerald-500 outline-none transition-colors"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Desired Username / Email Prefix</label>
-                      <div className="flex rounded-xl border border-slate-200 overflow-hidden bg-white focus-within:border-emerald-500 transition-colors">
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. rajesh.ayush"
-                          value={regEmail}
-                          onChange={(e) => setRegEmail(e.target.value)}
-                          className="w-full bg-transparent px-4 py-2 text-xs font-semibold outline-none"
-                        />
-                        <span className="flex items-center bg-emerald-50 px-3 border-l border-slate-150 text-[10px] text-emerald-800 font-bold select-none whitespace-nowrap">
-                          @uttarakhandayurved.co.in
-                        </span>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Desired Password</label>
-                      <input
-                        type="password"
-                        required
-                        placeholder="Min 6 characters"
-                        value={regPassword}
-                        onChange={(e) => setRegPassword(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-semibold focus:border-emerald-500 outline-none transition-colors"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Contact Mobile Number</label>
-                      <input
-                        type="tel"
-                        placeholder="e.g. +91 9411220033"
-                        value={regPhone}
-                        onChange={(e) => setRegPhone(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-semibold focus:border-emerald-500 outline-none transition-colors"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4">
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Security Role</label>
-                        <select
-                          value={regRole}
-                          onChange={(e) => setRegRole(e.target.value as UserRole)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-semibold focus:border-emerald-500 outline-none transition-colors"
-                        >
-                          <option value={UserRole.HOSPITAL_USER}>Hospital User</option>
-                          <option value={UserRole.OFFICE_ADMIN}>Office Analyst</option>
-                        </select>
-                      </div>
-
-                      {regRole === UserRole.HOSPITAL_USER && (
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5" htmlFor="reg-type-select">
-                              Type of Hospital (चिकित्सालय वर्ग)*
-                            </label>
-                            <select
-                              required
-                              id="reg-type-select"
-                              value={regType}
-                              onChange={(e) => {
-                                setRegType(e.target.value);
-                                setRegLocation("");
-                                setRegBlock("");
-                              }}
-                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-semibold focus:border-emerald-500 outline-none transition-colors"
-                            >
-                              <option value="">-- Choose Type of Hospital --</option>
-                              {uniqueHospitalTypes.map((type) => (
-                                <option key={type} value={type}>
-                                  {type}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5" htmlFor="reg-location-select">
-                              Location (स्थान)*
-                            </label>
-                            <select
-                              required
-                              id="reg-location-select"
-                              value={regLocation}
-                              disabled={!regType}
-                              onChange={(e) => {
-                                setRegLocation(e.target.value);
-                                setRegBlock("");
-                              }}
-                              className={`w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-semibold focus:border-emerald-500 outline-none transition-colors ${!regType ? "opacity-50 cursor-not-allowed" : ""}`}
-                            >
-                              <option value="">-- Choose Location --</option>
-                              {locationsToDisplay.map((loc) => (
-                                <option key={loc} value={loc}>
-                                  {loc}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5" htmlFor="reg-block-select">
-                              Block (विकासखंड)*
-                            </label>
-                            <select
-                              required
-                              id="reg-block-select"
-                              value={regBlock}
-                              disabled={!regLocation}
-                              onChange={(e) => setRegBlock(e.target.value)}
-                              className={`w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-semibold focus:border-emerald-500 outline-none transition-colors ${!regLocation ? "opacity-50 cursor-not-allowed" : ""}`}
-                            >
-                              <option value="">-- Choose Block --</option>
-                              {blocksToDisplay.map((blk) => (
-                                <option key={blk} value={blk}>
-                                  {blk}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {regHospitalId && (
-                            <div className="bg-emerald-50 text-emerald-800 border border-emerald-150 p-3 rounded-xl text-xs font-semibold animate-in fade-in duration-200" id="matched-facility-preview">
-                              📍 Matched Facility: <span className="underline font-bold">
-                                {[...hospitalsList, ...hospitalDropdownOptions].find(h => h.id === regHospitalId)?.name || ""}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {regError && (
-                      <p className="text-[10px] text-rose-600 font-semibold bg-rose-50 border border-rose-100 p-2.5 rounded-xl text-center">
-                        {regError}
-                      </p>
-                    )}
-
-                    <div className="pt-2 flex gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsRequestingRegister(false);
-                          setRegFilterCategory("");
-                        }}
-                        className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 rounded-xl transition-all border border-slate-200"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        className="flex-1 bg-emerald-800 hover:bg-emerald-900 text-white font-extrabold text-xs py-2.5 rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
-                      >
-                        <UserPlus className="w-4 h-4" />
-                        Submit Request
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            );
-          })()}
-          {/* END REQUEST TO REGISTER DIALOG MODAL */}
 
           {/* SECURE GOOGLE IFRAME FALLBACK MODAL */}
           {isGoogleFallbackOpen && (
@@ -2110,15 +1887,15 @@ export default function App() {
                   </span>
                   <h1 id="facility-name-heading" className={`font-black tracking-tight text-xs uppercase leading-snug truncate ${theme.sidebarHeadingColor || 'text-emerald-50'}`} title={
                     user.role === UserRole.SUPER_ADMIN
-                      ? "Admin"
-                      : user.role === UserRole.OFFICE_ADMIN
-                      ? "District ayurvedic & Unani Office"
+                      ? "Super Admin"
+                      : user.role === UserRole.DAUO
+                      ? "District Ayurvedic & Unani Office (DAUO)"
                       : (activeHospital?.name || hospital?.name || "")
                   }>
                     {user.role === UserRole.SUPER_ADMIN
-                      ? "Admin"
-                      : user.role === UserRole.OFFICE_ADMIN
-                      ? "District Office"
+                      ? "Super Admin"
+                      : user.role === UserRole.DAUO
+                      ? "DAUO (District Admin)"
                       : (activeHospital?.name || hospital?.name || "")}
                   </h1>
                 </div>
@@ -2232,7 +2009,7 @@ export default function App() {
                 <span>Charts & Trends</span>
               </button>
 
-              {(user.role === UserRole.SUPER_ADMIN || user.role === UserRole.OFFICE_ADMIN) && (
+              {(user.role === UserRole.SUPER_ADMIN || user.role === UserRole.DAUO) && (
                 <button
                   onClick={() => { setActiveTab("defaulters"); setIsMobileNavExpanded(false); }}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
@@ -2260,7 +2037,7 @@ export default function App() {
                 </button>
               )}
 
-              {(user.role === UserRole.SUPER_ADMIN || user.role === UserRole.OFFICE_ADMIN) && (
+              {(user.role === UserRole.SUPER_ADMIN || user.role === UserRole.DAUO) && (
                 <button
                   onClick={() => { setActiveTab("templates"); setIsMobileNavExpanded(false); }}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
@@ -2274,7 +2051,7 @@ export default function App() {
                 </button>
               )}
 
-              {user.role === UserRole.HOSPITAL_USER && (
+              {(user.role === UserRole.HOSPITAL_USER || user.role === UserRole.SUPER_ADMIN) && (
                 <button
                   onClick={() => { setActiveTab("settings"); setIsMobileNavExpanded(false); }}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
@@ -2284,7 +2061,7 @@ export default function App() {
                   }`}
                 >
                   <Settings className="w-4 h-4 opacity-80" />
-                  <span>Facility Settings</span>
+                  <span>{user.role === UserRole.SUPER_ADMIN ? "Admin Profile & Settings" : "Facility Settings"}</span>
                 </button>
               )}
 
@@ -2428,10 +2205,14 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <ShieldCheck className={`w-5 h-5 ${theme.bannerIconColor} flex-shrink-0`} />
                   <span>
-                    Authorized Session: <strong>{user.name}</strong> as <strong className="uppercase">{user.role === UserRole.SUPER_ADMIN ? "Office Admin" : "Hospital Login"}</strong>. 
+                    Authorized Session: <strong>{user.name}</strong> as <strong className="uppercase">
+                      {user.role === UserRole.SUPER_ADMIN ? "Super Admin" : user.role === UserRole.DAUO ? "DAUO (District Admin)" : "Hospital User (MOIC)"}
+                    </strong>. 
                     {user.role === UserRole.HOSPITAL_USER 
-                      ? ` Data scoped to assigned facility: ${hospital?.name || "Jhankat Hospital"}.`
-                      : " Full analytical access granted for district Udham Singh Nagar."
+                      ? ` Data scoped to assigned facility: ${activeHospital?.name || hospital?.name || "Assigned Facility"}.`
+                      : user.role === UserRole.DAUO
+                      ? " Global View-Only Access granted for cumulative district diagnostics."
+                      : " Full technical administration & database control granted."
                     }
                   </span>
                 </div>
@@ -2449,7 +2230,7 @@ export default function App() {
                   <div className={activeTab === "calendar" ? "block" : "hidden"}>
                     <CalendarEntry
                       user={user}
-                      hospitalId={hospital?.id || "hosp-jhankat"}
+                      hospitalId={activeHospital?.id || hospital?.id || "hosp-assigned"}
                       isOnline={isOnline}
                       toggleOnline={() => setIsOnline(!isOnline)}
                       onSuccessToast={showToast}
@@ -2460,13 +2241,17 @@ export default function App() {
                   </div>
                 )}
 
-                {user.role === UserRole.HOSPITAL_USER && (
+                {(user.role === UserRole.HOSPITAL_USER || user.role === UserRole.SUPER_ADMIN) && (
                   <div className={activeTab === "settings" ? "block" : "hidden"}>
                     <FacilitySettings
                       user={user}
-                      hospitalId={activeHospital?.id || hospital?.id || "hosp-jhankat"}
-                      hospitalName={activeHospital?.name || hospital?.name || "Jhankat Ayurvedic Hospital"}
+                      hospitalId={activeHospital?.id || hospital?.id || "hosp-assigned"}
+                      hospitalName={activeHospital?.name || hospital?.name || "Assigned Ayurvedic Hospital"}
                       onSuccessToast={showToast}
+                      onProfileUpdate={(updatedUser) => {
+                        setUser(updatedUser);
+                        safeStorage.setItem("mpr_user", JSON.stringify(updatedUser));
+                      }}
                     />
                   </div>
                 )}
@@ -2485,7 +2270,7 @@ export default function App() {
                   <AnalyticsCharts user={user} />
                 </div>
 
-                {(user.role === UserRole.SUPER_ADMIN || user.role === UserRole.OFFICE_ADMIN) && (
+                {(user.role === UserRole.SUPER_ADMIN || user.role === UserRole.DAUO) && (
                   <div className={activeTab === "defaulters" ? "block" : "hidden"}>
                     <DefaulterDashboard
                       user={user}
@@ -2503,7 +2288,7 @@ export default function App() {
                   </div>
                 )}
 
-                {(user.role === UserRole.SUPER_ADMIN || user.role === UserRole.OFFICE_ADMIN) && (
+                {(user.role === UserRole.SUPER_ADMIN || user.role === UserRole.DAUO) && (
                   <div className={activeTab === "templates" ? "block" : "hidden"}>
                     <ReportDesigner
                       user={user}

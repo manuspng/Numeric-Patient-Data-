@@ -5,7 +5,7 @@
 
 export enum UserRole {
   SUPER_ADMIN = "SUPER_ADMIN",
-  OFFICE_ADMIN = "OFFICE_ADMIN",
+  DAUO = "DAUO",
   HOSPITAL_USER = "HOSPITAL_USER"
 }
 
@@ -35,6 +35,8 @@ export interface UserProfile {
   phone: string;
   isWhitelisted: boolean;
   password?: string;
+  designation?: string;
+  contact?: string;
 }
 
 export interface PatientMatrixLog {

@@ -42,7 +42,7 @@ export const getComponentTheme = (role: UserRole): ComponentTheme => {
         calendarSelected: "bg-[#8D6E63] text-white font-bold ring-2 ring-[#8D6E63]/30",
         calendarSubmitted: "bg-[#FAF6F0] text-[#5C4033] font-semibold border border-[#EADBC8]"
       };
-    case UserRole.OFFICE_ADMIN:
+    case UserRole.DAUO:
       return {
         cardBg: "bg-white border-indigo-100",
         cardBorder: "border-indigo-100",

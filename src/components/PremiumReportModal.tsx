@@ -177,7 +177,7 @@ export default function PremiumReportModal({
       setIsLoading(true);
       setError(null);
       try {
-        let url = `/api/mpr/aggregate?month=${selectedMonth}`;
+        let url = `/api/mpr/aggregate?month=${selectedMonth}&userEmail=${encodeURIComponent(user.email)}`;
         if (reportType === "proforma2") {
           url += `&isAnnual=true`;
         }

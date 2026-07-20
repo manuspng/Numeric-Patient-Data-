@@ -199,12 +199,16 @@ export default function CalendarEntry({
   const [isNew, setIsNew] = useState(true);
 
   const isFuture = isFutureDate(selectedDate);
-  const isReadOnly = isLockedDb || isFuture || user.role === UserRole.SUPER_ADMIN || user.role === UserRole.OFFICE_ADMIN;
+  const isReadOnly = isLockedDb || isFuture || user.role === UserRole.SUPER_ADMIN || user.role === UserRole.DAUO;
   const isLocked = isReadOnly;
 
   useEffect(() => {
-    setSelectedHospitalId(hospitalId);
-  }, [hospitalId]);
+    if (user.role === UserRole.HOSPITAL_USER) {
+      setSelectedHospitalId(user.hospitalId || "");
+    } else {
+      setSelectedHospitalId(hospitalId);
+    }
+  }, [hospitalId, user]);
 
   // Bidirectional Synchronization of selected reporting month
   useEffect(() => {
@@ -731,12 +735,12 @@ export default function CalendarEntry({
     try {
       const yearMonth = selectedDate.substring(0, 7);
       // Scan status from database or local
-      const res = await fetch(`/api/mpr/aggregate?month=${yearMonth}`);
+      const res = await fetch(`/api/mpr/aggregate?month=${yearMonth}&userEmail=${encodeURIComponent(user.email)}`);
       const data = await res.json();
       if (data.success) {
         // Query server details to mark calendar days
         // Fetch from defaulters to find missing days
-        const defRes = await fetch(`/api/mpr/defaulters?month=${yearMonth}`);
+        const defRes = await fetch(`/api/mpr/defaulters?month=${yearMonth}&userEmail=${encodeURIComponent(user.email)}`);
         const defData = await defRes.json();
         const statuses: { [date: string]: "submitted" | "missing" | "locked" } = {};
 
@@ -783,7 +787,7 @@ export default function CalendarEntry({
         }
       }
 
-      const res = await fetch(`/api/mpr/daily?date=${dateStr}&hospitalId=${selectedHospitalId}`);
+      const res = await fetch(`/api/mpr/daily?date=${dateStr}&hospitalId=${selectedHospitalId}&userEmail=${encodeURIComponent(user.email)}`);
       const data = await res.json();
       if (data.success && data.report) {
         loadReportIntoState(data.report, data.isNew || false);
@@ -1344,7 +1348,7 @@ export default function CalendarEntry({
         <div className={`border rounded-xl p-4 space-y-3 ${ct.subSectionBg}`}>
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>Lock Status</span>
-            {user.role === UserRole.SUPER_ADMIN || user.role === UserRole.OFFICE_ADMIN ? (
+            {user.role === UserRole.SUPER_ADMIN || user.role === UserRole.DAUO ? (
               <span className="text-indigo-600 font-semibold flex items-center gap-1 bg-indigo-50 px-2.5 py-0.5 rounded-full">
                 <Lock className="w-3.5 h-3.5 text-indigo-500" />
                 INTROSPECT ONLY
@@ -2525,7 +2529,7 @@ export default function CalendarEntry({
 
         {/* Submission control bar */}
         <div className={`bg-white border ${ct.cardBorder} rounded-2xl p-4 shadow-sm flex flex-col gap-3`}>
-          {(user.role === UserRole.SUPER_ADMIN || user.role === UserRole.OFFICE_ADMIN) ? (
+          {(user.role === UserRole.SUPER_ADMIN || user.role === UserRole.DAUO) ? (
             <div className="text-xs text-slate-500 flex items-center justify-center py-1">
               <span className={`flex items-center gap-1 ${ct.accentText} font-medium`}>
                 <AlertOctagon className="w-4 h-4 text-current" />

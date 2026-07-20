@@ -1219,7 +1219,7 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
                           <td className="py-2.5 font-mono text-[11px] text-emerald-800 font-bold">{req.email}</td>
                           <td className="py-2.5">
                             <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded text-[10px] font-bold">
-                              {req.role === UserRole.SUPER_ADMIN ? "super admin" : req.role === UserRole.OFFICE_ADMIN ? "admin" : (hospitals.find(h => h.id === req.hospitalId)?.name || "Hospital")}
+                              {req.role === UserRole.SUPER_ADMIN ? "super admin" : req.role === UserRole.DAUO ? "admin" : (hospitals.find(h => h.id === req.hospitalId)?.name || "Hospital")}
                             </span>
                           </td>
                           <td className="py-2.5 font-semibold text-slate-500">{req.phone || "—"}</td>
@@ -1279,10 +1279,10 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
                       <td className="py-2.5">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           u.role === UserRole.SUPER_ADMIN ? "bg-rose-50 text-rose-800 border border-rose-100" :
-                          u.role === UserRole.OFFICE_ADMIN ? "bg-amber-50 text-amber-800 border border-amber-100" :
+                          u.role === UserRole.DAUO ? "bg-amber-50 text-amber-800 border border-amber-100" :
                           "bg-blue-50 text-blue-800 border border-blue-100"
                         }`}>
-                          {u.role === UserRole.SUPER_ADMIN ? "super admin" : u.role === UserRole.OFFICE_ADMIN ? "admin" : (hospitals.find(h => h.id === u.hospitalId)?.name || "Hospital")}
+                          {u.role === UserRole.SUPER_ADMIN ? "super admin" : u.role === UserRole.DAUO ? "admin" : (hospitals.find(h => h.id === u.hospitalId)?.name || "Hospital")}
                         </span>
                       </td>
                       <td className="py-2.5 font-semibold text-slate-500">

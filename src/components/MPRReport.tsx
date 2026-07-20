@@ -93,7 +93,7 @@ export default function MPRReport({
 
     setIsCustomLoading(true);
     try {
-      let url = `/api/mpr/aggregate-custom?startDate=${customStartDate}&endDate=${customEndDate}`;
+      let url = `/api/mpr/aggregate-custom?startDate=${customStartDate}&endDate=${customEndDate}&userEmail=${encodeURIComponent(user.email)}`;
       if (user.role === UserRole.HOSPITAL_USER && user.hospitalId) {
         url += `&hospitalId=${user.hospitalId}`;
       }
@@ -245,7 +245,7 @@ export default function MPRReport({
     setIsLoading(true);
     setAiSummary("");
     try {
-      let url = `/api/mpr/aggregate?month=${month}`;
+      let url = `/api/mpr/aggregate?month=${month}&userEmail=${encodeURIComponent(user.email)}`;
       if (user.role === UserRole.HOSPITAL_USER && user.hospitalId) {
         url += `&hospitalId=${user.hospitalId}`;
       }

@@ -34,7 +34,7 @@ export default function AnalyticsCharts({ user }: AnalyticsChartsProps) {
   const fetchAnalyticsData = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/mpr/aggregate?month=${month}`);
+      const res = await fetch(`/api/mpr/aggregate?month=${month}&userEmail=${encodeURIComponent(user.email)}`);
       const d = await res.json();
       if (d.success) {
         setData(d);

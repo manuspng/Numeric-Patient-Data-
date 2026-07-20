@@ -442,26 +442,20 @@ function loadDB(): DBStore {
 
       let changed = false;
 
-      // Partition hospitals: only those with a non-empty, non-whitespace incharge remain in db.hospitals.
-      // All other entries are moved/preserved in db.hospitalDropdownOptions.
-      if (db.hospitals && db.hospitals.length > 0) {
-        const registered: Hospital[] = [];
-        const unregistered: Hospital[] = db.hospitalDropdownOptions || [];
-        for (const h of db.hospitals) {
-          if (h.incharge && h.incharge.trim() !== "") {
-            registered.push(h);
-          } else {
-            if (!unregistered.some(u => u.id === h.id || u.code === h.code)) {
-              unregistered.push(h);
-            }
+      // Maintain all hospitals in db.hospitals as the single source of truth.
+      // Merge db.hospitalDropdownOptions back into db.hospitals to prevent ghost data.
+      if (db.hospitalDropdownOptions && db.hospitalDropdownOptions.length > 0) {
+        if (!db.hospitals) {
+          db.hospitals = [];
+        }
+        for (const h of db.hospitalDropdownOptions) {
+          if (!db.hospitals.some(existing => existing.id === h.id)) {
+            db.hospitals.push(h);
             changed = true;
           }
         }
-        if (db.hospitals.length !== registered.length) {
-          db.hospitals = registered;
-          db.hospitalDropdownOptions = unregistered;
-          changed = true;
-        }
+        db.hospitalDropdownOptions = [];
+        changed = true;
       }
       if (!db.hospitalTypes || db.hospitalTypes.length === 0) {
         db.hospitalTypes = [
@@ -614,34 +608,7 @@ function loadDB(): DBStore {
     }
   ];
 
-  const defaultUsers: UserProfile[] = [
-    {
-      id: "user-manu",
-      email: "manu.spng@gmail.com",
-      name: "Office Admin (District)",
-      role: UserRole.SUPER_ADMIN,
-      phone: "+919411223344",
-      isWhitelisted: true
-    },
-    {
-      id: "user-hosp-jhankat",
-      email: "jhankat.user@uttarakhandayurved.co.in",
-      name: "Jhankat Ayurvedic Hospital",
-      role: UserRole.HOSPITAL_USER,
-      hospitalId: "hosp-jhankat",
-      phone: "+919411220011",
-      isWhitelisted: true
-    },
-    {
-      id: "user-hosp-khatima",
-      email: "khatima.user@uttarakhandayurved.co.in",
-      name: "Khatima Ayurvedic Hospital",
-      role: UserRole.HOSPITAL_USER,
-      hospitalId: "hosp-khatima",
-      phone: "+919411220022",
-      isWhitelisted: true
-    }
-  ];
+  const defaultUsers: UserProfile[] = [];
 
   const defaultDiseases: MasterDisease[] = [
     { id: "dis-1", name: "Amavata / Rheumatoid Arthritis", category: "Joint Disorders" },
@@ -1022,6 +989,41 @@ app.post("/api/auth/register", (req, res) => {
 });
 
 // Whitelist / Users Management (Super Admin only)
+app.post("/api/admin/profile/update", async (req, res) => {
+  const { email, name, designation, contact, phone } = req.body;
+  if (!email || email.toLowerCase().trim() !== "manu.spng@gmail.com") {
+    return res.status(403).json({ success: false, message: "Unauthorized profile modification." });
+  }
+
+  const db = loadDB();
+  const searchEmail = email.toLowerCase().trim();
+  let user = db.users.find(u => u.email.toLowerCase().trim() === searchEmail);
+
+  if (!user) {
+    user = {
+      id: "user-manu",
+      email: searchEmail,
+      name: name || "Dr. Manu Sharma",
+      role: UserRole.SUPER_ADMIN,
+      phone: phone || contact || "",
+      isWhitelisted: true,
+      designation: designation || "",
+      contact: contact || ""
+    };
+    db.users.push(user);
+  } else {
+    user.name = name || user.name;
+    user.phone = phone || contact || user.phone;
+    user.designation = designation !== undefined ? designation : user.designation;
+    user.contact = contact !== undefined ? contact : user.contact;
+  }
+
+  saveDB(db);
+  await saveUserToFirestore(user);
+
+  res.json({ success: true, user });
+});
+
 app.get("/api/admin/users", (req, res) => {
   const db = loadDB();
   res.json(db.users);
@@ -1743,7 +1745,7 @@ app.post("/api/admin/hospitals/save", (req, res) => {
   const db = loadDB();
 
   const adminUser = db.users.find(u => u.email === adminEmail);
-  if (!adminUser || (adminUser.role !== UserRole.SUPER_ADMIN && adminUser.role !== UserRole.OFFICE_ADMIN)) {
+  if (!adminUser || adminUser.role !== UserRole.SUPER_ADMIN) {
     return res.status(403).json({ success: false, message: "Unauthorized" });
   }
 
@@ -1849,7 +1851,7 @@ app.post("/api/admin/hospitals/delete", (req, res) => {
   const db = loadDB();
 
   const adminUser = db.users.find(u => u.email === adminEmail);
-  if (!adminUser || (adminUser.role !== UserRole.SUPER_ADMIN && adminUser.role !== UserRole.OFFICE_ADMIN)) {
+  if (!adminUser || adminUser.role !== UserRole.SUPER_ADMIN) {
     return res.status(403).json({ success: false, message: "Unauthorized" });
   }
 
@@ -1897,7 +1899,7 @@ app.post("/api/admin/masters/update", (req, res) => {
   const db = loadDB();
 
   const adminUser = db.users.find(u => u.email === adminEmail);
-  if (!adminUser || (adminUser.role !== UserRole.SUPER_ADMIN && adminUser.role !== UserRole.OFFICE_ADMIN)) {
+  if (!adminUser || adminUser.role !== UserRole.SUPER_ADMIN) {
     return res.status(403).json({ success: false, message: "Unauthorized" });
   }
 
@@ -2189,11 +2191,19 @@ app.post("/api/admin/kits/upload", (req, res) => {
 
 // Daily Calendar Entry endpoints (with smart anomaly detection)
 app.get("/api/mpr/daily", (req, res) => {
-  const { date, hospitalId } = req.query;
+  const { date, hospitalId, userEmail } = req.query;
   const db = loadDB();
 
   if (!date || !hospitalId) {
     return res.status(400).json({ success: false, message: "date and hospitalId parameters are required" });
+  }
+
+  // Security Scoping: HOSPITAL_USER can only request report data for their assigned hospital
+  if (userEmail) {
+    const user = db.users.find(u => u.email === userEmail);
+    if (user && user.role === UserRole.HOSPITAL_USER && user.hospitalId !== hospitalId) {
+      return res.status(403).json({ success: false, message: "Unauthorized: You are not authorized to access this hospital's reports." });
+    }
   }
 
   const report = db.dailyReports.find(r => r.hospitalId === hospitalId && r.recordDate === date);
@@ -2434,11 +2444,20 @@ app.post("/api/mpr/lock", (req, res) => {
 
 // Aggregation Engine for strict Monthly Progress Report (MPR) View
 app.get("/api/mpr/aggregate", (req, res) => {
-  const { month, hospitalId, isAnnual } = req.query; // Expects "YYYY-MM" (e.g. "2026-06")
+  const { month, hospitalId, isAnnual, userEmail } = req.query; // Expects "YYYY-MM" (e.g. "2026-06")
   const db = loadDB();
 
   if (!month || typeof month !== "string") {
     return res.status(400).json({ success: false, message: "month query parameter (YYYY-MM) is required" });
+  }
+
+  // Domain Scoping Enforcer
+  let effectiveHospitalId = hospitalId;
+  if (userEmail && typeof userEmail === "string") {
+    const user = db.users.find(u => u.email === userEmail);
+    if (user && user.role === UserRole.HOSPITAL_USER) {
+      effectiveHospitalId = user.hospitalId;
+    }
   }
 
   let monthReports;
@@ -3047,8 +3066,8 @@ app.get("/api/mpr/aggregate", (req, res) => {
   let responseHospitals = hospitalAggregates;
   let responseTotal = districtTotal;
 
-  if (hospitalId && typeof hospitalId === "string") {
-    responseHospitals = hospitalAggregates.filter(h => h.hospitalId === hospitalId);
+  if (effectiveHospitalId && typeof effectiveHospitalId === "string") {
+    responseHospitals = hospitalAggregates.filter(h => h.hospitalId === effectiveHospitalId);
     if (responseHospitals.length > 0) {
       responseTotal = {
         ...responseHospitals[0],
@@ -3068,11 +3087,20 @@ app.get("/api/mpr/aggregate", (req, res) => {
 
 // Custom Period Aggregation Engine
 app.get("/api/mpr/aggregate-custom", (req, res) => {
-  const { startDate, endDate, hospitalId } = req.query;
+  const { startDate, endDate, hospitalId, userEmail } = req.query;
   const db = loadDB();
 
   if (!startDate || typeof startDate !== "string" || !endDate || typeof endDate !== "string") {
     return res.status(400).json({ success: false, message: "startDate and endDate query parameters (YYYY-MM-DD) are required" });
+  }
+
+  // Domain Scoping Enforcer
+  let effectiveHospitalId = hospitalId;
+  if (userEmail && typeof userEmail === "string") {
+    const user = db.users.find(u => u.email === userEmail);
+    if (user && user.role === UserRole.HOSPITAL_USER) {
+      effectiveHospitalId = user.hospitalId;
+    }
   }
 
   // Filter daily reports for this custom range
@@ -3331,8 +3359,8 @@ app.get("/api/mpr/aggregate-custom", (req, res) => {
   let responseHospitals = hospitalAggregates;
   let responseTotal = districtTotal;
 
-  if (hospitalId && typeof hospitalId === "string") {
-    responseHospitals = hospitalAggregates.filter(h => h.hospitalId === hospitalId);
+  if (effectiveHospitalId && typeof effectiveHospitalId === "string") {
+    responseHospitals = hospitalAggregates.filter(h => h.hospitalId === effectiveHospitalId);
     if (responseHospitals.length > 0) {
       responseTotal = {
         ...responseHospitals[0],
@@ -3353,7 +3381,7 @@ app.get("/api/mpr/aggregate-custom", (req, res) => {
 
 // Defaulter Dashboard: Find hospitals with missing days in selected month
 app.get("/api/mpr/defaulters", (req, res) => {
-  const { month } = req.query; // YYYY-MM
+  const { month, userEmail } = req.query; // YYYY-MM
   const db = loadDB();
 
   if (!month || typeof month !== "string") {
@@ -3399,11 +3427,19 @@ app.get("/api/mpr/defaulters", (req, res) => {
     };
   }).filter(h => h.compliancePercentage < 100);
 
+  let filteredDefaulters = defaulters;
+  if (userEmail && typeof userEmail === "string") {
+    const user = db.users.find(u => u.email === userEmail);
+    if (user && user.role === UserRole.HOSPITAL_USER) {
+      filteredDefaulters = defaulters.filter(h => h.hospitalId === user.hospitalId);
+    }
+  }
+
   res.json({
     success: true,
     month,
     totalHospitalsCount: registeredHospitals.length,
-    defaulters
+    defaulters: filteredDefaulters
   });
 });
 
@@ -3413,6 +3449,10 @@ app.post("/api/mpr/nudge", (req, res) => {
   const db = loadDB();
 
   const adminUser = db.users.find(u => u.email === adminEmail);
+  if (!adminUser || adminUser.role === UserRole.HOSPITAL_USER) {
+    return res.status(403).json({ success: false, message: "Unauthorized: Only District Admins and Super Admins can send compliance nudges." });
+  }
+
   const targetHosp = db.hospitals.find(h => h.id === hospitalId);
 
   if (!targetHosp) return res.status(404).json({ success: false, message: "Hospital not found" });
