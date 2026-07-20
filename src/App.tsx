@@ -130,7 +130,9 @@ const INITIAL_MOCK_DB = {
   streams: ["Ayurved", "Unani"],
   locations: ["बाजपुर", "खटीमा", "सितारगंज", "जसपुर"],
   blocks: ["बाजपुर", "गदरपुर", "जसपुर", "खटीमा", "सितारगंज"],
-  districts: ["उधम सिंह नगर"]
+  districts: ["उधम सिंह नगर"],
+  emailIds: [] as string[],
+  categories: [] as string[]
 };
 
 // Seed historical data so charts work out of the box in client simulation
@@ -339,6 +341,25 @@ const customFetch = async function (input: any, init?: any) {
       }
       else if (pathname === "/api/admin/registration-requests") {
         responseData = db.registrationRequests || [];
+      }
+      else if (pathname === "/api/admin/masters") {
+        responseData = {
+          hospitalTypes: db.hospitalTypes || INITIAL_MOCK_DB.hospitalTypes || [],
+          streams: db.streams || INITIAL_MOCK_DB.streams || [],
+          locations: db.locations || INITIAL_MOCK_DB.locations || [],
+          blocks: db.blocks || INITIAL_MOCK_DB.blocks || [],
+          districts: db.districts || INITIAL_MOCK_DB.districts || [],
+          emailIds: db.emailIds || INITIAL_MOCK_DB.emailIds || [],
+          categories: db.categories || INITIAL_MOCK_DB.categories || []
+        };
+      }
+      else if (pathname === "/api/admin/masters/update") {
+        const { category, items } = body || {};
+        if (category) {
+          db[category] = items || [];
+          saveLocalMockDB(db);
+        }
+        responseData = { success: true, message: "Master list updated in simulated database" };
       }
       else if (pathname === "/api/admin/registration-requests/action") {
         const { id, action } = body || {};

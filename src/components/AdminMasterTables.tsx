@@ -702,13 +702,14 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
   }, [activeTab]);
 
   useEffect(() => {
-    if (selectedHospId === "new" && masters.hospitalTypes.length > 0) {
-      if (!hospType) setHospType(masters.hospitalTypes[0]);
-      if (!hospEmail) setHospEmail(masters.emailIds[0]);
-      if (!hospStream) setHospStream(masters.streams[0]);
-      if (!hospLocation) setHospLocation(masters.locations[0]);
-      if (!hospBlock) setHospBlock(masters.blocks[0]);
-      if (!hospDistrict) setHospDistrict(masters.districts[0]);
+    const types = masters?.hospitalTypes || [];
+    if (selectedHospId === "new" && types.length > 0) {
+      if (!hospType) setHospType(types[0]);
+      if (!hospEmail) setHospEmail((masters?.emailIds || [])[0] || "");
+      if (!hospStream) setHospStream((masters?.streams || [])[0] || "");
+      if (!hospLocation) setHospLocation((masters?.locations || [])[0] || "");
+      if (!hospBlock) setHospBlock((masters?.blocks || [])[0] || "");
+      if (!hospDistrict) setHospDistrict((masters?.districts || [])[0] || "उधम सिंह नगर");
     }
   }, [masters]);
 
@@ -1477,7 +1478,7 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
                     className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-850 font-bold outline-none focus:ring-2 focus:ring-emerald-500/20 hover:border-emerald-500/50 cursor-pointer shadow-sm transition-all"
                   >
                     {!hospCategory && <option value="">-- Choose Category --</option>}
-                    {masters.categories && masters.categories.map(c => (
+                    {masters?.categories && masters.categories.map(c => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>
@@ -1491,7 +1492,7 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
                     onChange={(e) => setHospType(e.target.value)}
                     className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-850 font-bold outline-none focus:ring-2 focus:ring-emerald-500/20 hover:border-emerald-500/50 cursor-pointer shadow-sm transition-all"
                   >
-                    {masters.hospitalTypes.length === 0 ? (
+                    {!(masters?.hospitalTypes) || masters.hospitalTypes.length === 0 ? (
                       <option value="">No types configured. Add them below.</option>
                     ) : (
                       masters.hospitalTypes.map(t => (
@@ -1522,7 +1523,7 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
                     onChange={(e) => setHospLocation(e.target.value)}
                     className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-850 font-bold outline-none focus:ring-2 focus:ring-emerald-500/20 hover:border-emerald-500/50 cursor-pointer shadow-sm transition-all"
                   >
-                    {masters.locations.length === 0 ? (
+                    {!(masters?.locations) || masters.locations.length === 0 ? (
                       <option value="">No locations configured. Add them below.</option>
                     ) : (
                       masters.locations.map(loc => (
@@ -1540,7 +1541,7 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
                     onChange={(e) => setHospBlock(e.target.value)}
                     className="w-full bg-slate-50/50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-850 font-bold outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
                   >
-                    {masters.blocks.length === 0 ? (
+                    {!(masters?.blocks) || masters.blocks.length === 0 ? (
                       <option value="">No blocks configured. Add them below.</option>
                     ) : (
                       masters.blocks.map(b => (
@@ -1558,7 +1559,7 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
                     onChange={(e) => setHospDistrict(e.target.value)}
                     className="w-full bg-slate-50/50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-850 font-bold outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
                   >
-                    {masters.districts.length === 0 ? (
+                    {!(masters?.districts) || masters.districts.length === 0 ? (
                       <option value="">No districts configured. Add them below.</option>
                     ) : (
                       masters.districts.map(d => (
