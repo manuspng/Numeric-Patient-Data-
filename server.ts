@@ -917,42 +917,33 @@ app.post("/api/auth/login", async (req, res) => {
     }
   }
 
-  // Auto-create helper if user is authenticated via Firebase or we are the super admin
-  if (!user && (loginType?.includes("Firebase") || searchEmail === "manu.spng@gmail.com")) {
+  // Auto-create helper strictly for Super Admin to prevent initial lockout
+  if (!user && searchEmail === "manu.spng@gmail.com") {
     user = {
-      id: "user-" + (searchEmail === "manu.spng@gmail.com" ? "manu" : Math.random().toString(36).substring(2, 11)),
-      email: searchEmail,
-      name: searchEmail === "manu.spng@gmail.com" ? "Dr. Manu Sharma" : searchEmail.split("@")[0],
-      role: searchEmail === "manu.spng@gmail.com" ? UserRole.SUPER_ADMIN : UserRole.HOSPITAL_USER,
-      phone: phone || "",
+      id: "user-manu",
+      email: "manu.spng@gmail.com",
+      name: "Dr. Manu Sharma",
+      role: UserRole.SUPER_ADMIN,
+      phone: "+919411223344",
       isWhitelisted: true,
-      password: password || (searchEmail === "manu.spng@gmail.com" ? "admin123" : "123")
+      password: password || "admin123"
     };
     db.users.push(user);
     saveDB(db);
     saveUserToFirestore(user);
   }
 
-  // Fallback to allow any user since the whitelist restriction is removed per request
   if (!user) {
-    user = {
-      id: "user-" + Math.random().toString(36).substring(2, 11),
-      email: searchEmail,
-      name: searchEmail.split("@")[0],
-      role: UserRole.HOSPITAL_USER,
-      phone: phone || "",
-      isWhitelisted: true,
-      password: password || "123"
-    };
-    db.users.push(user);
-    saveDB(db);
-    saveUserToFirestore(user);
+    return res.status(401).json({
+      success: false,
+      message: "User account not found. Please verify your credentials or contact your administrator."
+    });
   }
 
   if (loginType === "Simulated Database Authentication" && user.password && password && user.password !== password) {
     return res.status(401).json({
       success: false,
-      message: "Incorrect password for this whitelisted account. Please try again."
+      message: "Incorrect password for this account. Please try again."
     });
   }
 
@@ -2335,7 +2326,7 @@ app.post("/api/mpr/daily", (req, res) => {
 
   const user = db.users.find(u => u.email === userEmail);
   if (!user) {
-    return res.status(403).json({ success: false, message: "User not found or unwhitelisted" });
+    return res.status(403).json({ success: false, message: "User account not found or deactivated." });
   }
 
   // Double check security block: Hospital users can only save their own hospital data
