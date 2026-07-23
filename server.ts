@@ -4170,7 +4170,7 @@ app.post("/api/templates/auto-map", async (req, res) => {
     `;
 
     const response = await aiClient.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         temperature: 0.1, // low temperature for precise JSON matching
@@ -4230,7 +4230,7 @@ app.post("/api/mpr/summarize", async (req, res) => {
     `;
 
     const response = await aiClient.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         temperature: 0.7,
