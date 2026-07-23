@@ -160,24 +160,6 @@ export const FacilitySettings: React.FC<FacilitySettingsProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6" id="facility-settings-tab-view">
-      {/* Top Banner */}
-      <div className="bg-gradient-to-br from-emerald-800 to-emerald-950 rounded-3xl p-6 sm:p-8 text-white shadow-xl shadow-emerald-950/10 border border-emerald-800 flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <span className="text-[10px] tracking-widest font-extrabold text-amber-400 uppercase block mb-1">
-            System Configuration
-          </span>
-          <h2 className="text-xl sm:text-2xl font-black tracking-tight mb-2">
-            Facility Settings & Parameters
-          </h2>
-          <p className="text-xs text-emerald-100/80 max-w-xl font-medium leading-relaxed text-justify">
-            Manage long-term hospital configuration properties for <span className="text-white font-bold underline decoration-amber-400">{hospitalName}</span>. These values rarely change (e.g. revised once in years) and are decoupled from your daily logs. Note: Levy rates should be only revised by the order of higher authorities; before starting entry data, please confirm the levy rates and select the appropriate option accordingly.
-          </p>
-        </div>
-        <div className="w-12 h-12 bg-emerald-700/50 rounded-2xl flex items-center justify-center border border-emerald-600 shrink-0">
-          <SlidersHorizontal className="w-6 h-6 text-amber-400" />
-        </div>
-      </div>
-
       {/* Super Admin Profile Editor */}
       {isSuperAdmin && (
         <div className={`bg-white border ${ct.cardBorder} rounded-3xl p-6 sm:p-8 shadow-sm space-y-6`}>

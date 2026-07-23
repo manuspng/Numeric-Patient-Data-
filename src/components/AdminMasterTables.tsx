@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from "react";
 import { createFirebaseUser } from "../firebase";
 import { getComponentTheme } from "../utils/theme";
+import ReportDesigner from "./ReportDesigner";
 import { 
   Plus, 
   Trash2, 
@@ -31,7 +32,8 @@ import {
   Database,
   ListFilter,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Zap
 } from "lucide-react";
 import { UserRole, UserProfile, Hospital } from "../types";
 
@@ -144,7 +146,11 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [requests, setRequests] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"users" | "hospitals" | "audits" | "uploads" | "config_masters">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "hospitals" | "sheets" | "audits">("users");
+  const [hospSubMode, setHospSubMode] = useState<"single" | "bulk">("single");
+  const [bulkPastedData, setBulkPastedData] = useState("");
+  const [bulkErrors, setBulkErrors] = useState<string[]>([]);
+  const [isBulkSaving, setIsBulkSaving] = useState(false);
 
   // Master lists and configuration state
   const [masterDiseases, setMasterDiseases] = useState<any[]>([]);
@@ -397,9 +403,7 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
   const [editPasswordValue, setEditPasswordValue] = useState("");
   const [showPasswordForUserId, setShowPasswordForUserId] = useState<Record<string, boolean>>({});
 
-  // Simulated CSV spreadsheet text upload
-  const [csvText, setCsvText] = useState("");
-  const [uploadType, setUploadType] = useState<"hospitals" | "diseases" | "kits">("hospitals");
+
 
   // Hospital Form management states
   const [selectedHospId, setSelectedHospId] = useState<string>("new");
@@ -444,6 +448,8 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
   });
 
   const [expandedHospitals, setExpandedHospitals] = useState<Record<string, boolean>>({});
+  const [expandedUserDetails, setExpandedUserDetails] = useState<Record<string, boolean>>({});
+  const [hospitalSearch, setHospitalSearch] = useState("");
 
   const [editingItem, setEditingItem] = useState<{ category: string; index: number; value: string } | null>(null);
   const [newItemValue, setNewItemValue] = useState<Record<string, string>>({
@@ -634,6 +640,175 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
       alert("An error occurred while saving the hospital.");
     } finally {
       setIsSavingHosp(false);
+    }
+  };
+
+  const handleBulkSaveHospitals = async () => {
+    if (!bulkPastedData.trim()) {
+      alert("Please paste some data or load the template first.");
+      return;
+    }
+
+    try {
+      setIsBulkSaving(true);
+      setBulkErrors([]);
+
+      // Split into lines
+      const lines = bulkPastedData.split(/\r?\n/);
+      if (lines.length <= 1) {
+        alert("The pasted content doesn't seem to have data rows (or only has a header row).");
+        setIsBulkSaving(false);
+        return;
+      }
+
+      // Determine delimiter by looking at the first line
+      const headerLine = lines[0];
+      let delimiter = ",";
+      if (headerLine.includes("\t")) {
+        delimiter = "\t";
+      } else if (headerLine.includes(";")) {
+        delimiter = ";";
+      }
+
+      // Parse headers
+      const headers = headerLine.split(delimiter).map(h => h.trim().toLowerCase());
+
+      // Find indexes of columns:
+      const colIdx = {
+        location: headers.findIndex(h => h.includes("location") || h.includes("town") || h.includes("स्थान")),
+        contactEmail: headers.findIndex(h => h.includes("email") || h.includes("login") || h.includes("ईमेल")),
+        incharge: headers.findIndex(h => h.includes("incharge") || h.includes("in-charge") || h.includes("प्रभारी")),
+        type: headers.findIndex(h => h.includes("type") || h.includes("category") || h.includes("प्रकार")),
+        code: headers.findIndex(h => h.includes("code") || h.includes("कोड")),
+        address: headers.findIndex(h => h.includes("address") || h.includes("पता")),
+        contactPhone: headers.findIndex(h => h.includes("phone") || h.includes("contact") || h.includes("फ़ोन")),
+        block: headers.findIndex(h => h.includes("block") || h.includes("विकासखंड")),
+        district: headers.findIndex(h => h.includes("district") || h.includes("जनपद")),
+        stream: headers.findIndex(h => h.includes("stream") || h.includes("पद्धति")),
+        password: headers.findIndex(h => h.includes("password") || h.includes("पासवर्ड")),
+      };
+
+      // Validate required headers
+      if (colIdx.location === -1 || colIdx.contactEmail === -1 || colIdx.incharge === -1) {
+        alert(`❌ Could not identify all required columns. Please ensure your header row contains:
+- Location / Town (स्थान)
+- In-charge Name (प्रभारी)
+- Official Email (ईमेल)`);
+        setIsBulkSaving(false);
+        return;
+      }
+
+      // Helper function to split CSV line respecting quotes
+      const parseCSVLine = (line: string, delim: string) => {
+        const result = [];
+        let curVal = "";
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === delim && !inQuotes) {
+            result.push(curVal.trim());
+            curVal = "";
+          } else {
+            curVal += char;
+          }
+        }
+        result.push(curVal.trim());
+        return result;
+      };
+
+      const rows: any[] = [];
+      const errors: string[] = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        const cells = parseCSVLine(line, delimiter);
+        if (cells.length < 3) continue; // Skip too short lines
+
+        const getVal = (idx: number, fallback = "") => {
+          if (idx !== -1 && cells[idx] !== undefined) {
+            return cells[idx].replace(/^"|"$/g, "").trim(); // strip outer quotes
+          }
+          return fallback;
+        };
+
+        const location = getVal(colIdx.location);
+        const contactEmail = getVal(colIdx.contactEmail);
+        const incharge = getVal(colIdx.incharge);
+
+        if (!location || !contactEmail || !incharge) {
+          errors.push(`Row ${i + 1}: Missing location, email, or in-charge name.`);
+          continue;
+        }
+
+        rows.push({
+          location,
+          contactEmail,
+          incharge,
+          type: getVal(colIdx.type, "राजकीय आयुर्वेदिक चिकित्सालय"),
+          code: getVal(colIdx.code),
+          address: getVal(colIdx.address),
+          contactPhone: getVal(colIdx.contactPhone),
+          block: getVal(colIdx.block),
+          district: getVal(colIdx.district, "उधम सिंह नगर"),
+          stream: getVal(colIdx.stream, "Ayurved"),
+          password: getVal(colIdx.password, "123456"),
+        });
+      }
+
+      if (errors.length > 0) {
+        setBulkErrors(errors);
+      }
+
+      if (rows.length === 0) {
+        alert("No valid data rows found to submit.");
+        setIsBulkSaving(false);
+        return;
+      }
+
+      // Send to server
+      const res = await fetch("/api/admin/hospitals/bulk-register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminEmail: user.email,
+          rows
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        onSuccessToast({
+          title: "🏥 Bulk Registration Completed",
+          content: `Successfully registered ${data.addedHospitals} hospitals and ${data.addedUsers} credentials.`
+        });
+
+        if (data.errors && data.errors.length > 0) {
+          setBulkErrors(prev => [...prev, ...data.errors]);
+        } else if (errors.length === 0) {
+          setBulkPastedData("");
+          setBulkErrors([]);
+        }
+
+        // Refresh hospitals list
+        const refreshedListResponse = await fetch("/api/hospitals");
+        const refreshedList = await refreshedListResponse.json();
+        setHospitals(refreshedList);
+
+        // Trigger real-time sync across the app
+        window.dispatchEvent(new CustomEvent("hospitals-updated"));
+      } else {
+        alert(data.message || "Failed to bulk register hospitals.");
+      }
+
+    } catch (err) {
+      console.error(err);
+      alert("An error occurred during bulk registration.");
+    } finally {
+      setIsBulkSaving(false);
     }
   };
 
@@ -1009,117 +1184,7 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
     }
   };
 
-  // Parses simulated Excel sheet CSV uploads dynamically!
-  const handleBulkUpload = async () => {
-    if (!csvText.trim()) return;
-    setIsLoading(true);
 
-    try {
-      const lines = csvText.split("\n").map(l => l.trim()).filter(Boolean);
-      if (lines.length < 2) {
-        alert("Spreadsheet must contain a header and at least 1 record row!");
-        setIsLoading(false);
-        return;
-      }
-
-      // Read header row
-      const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
-
-      if (uploadType === "hospitals") {
-        // Columns: name, code, type, address, email, phone
-        const items = lines.slice(1).map(line => {
-          const parts = line.split(",").map(p => p.trim());
-          const nameIdx = headers.indexOf("name");
-          const codeIdx = headers.indexOf("code");
-          const typeIdx = headers.indexOf("type");
-          const addrIdx = headers.indexOf("address");
-          const emailIdx = headers.indexOf("email");
-          const phoneIdx = headers.indexOf("phone");
-
-          return {
-            name: nameIdx !== -1 ? parts[nameIdx] : parts[0],
-            code: codeIdx !== -1 ? parts[codeIdx] : parts[1],
-            type: typeIdx !== -1 ? parts[typeIdx] : "Ayurvedic",
-            address: addrIdx !== -1 ? parts[addrIdx] : "",
-            contactEmail: emailIdx !== -1 ? parts[emailIdx] : "",
-            contactPhone: phoneIdx !== -1 ? parts[phoneIdx] : ""
-          };
-        });
-
-        const res = await fetch("/api/admin/hospitals/bulk-upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ hospitals: items, adminEmail: user.email })
-        });
-        const d = await res.json();
-        if (d.success) {
-          onSuccessToast({
-            title: "📊 Hospitals Uploaded",
-            content: d.message
-          });
-          setCsvText("");
-          fetchHospitals();
-          window.dispatchEvent(new CustomEvent("hospitals-updated"));
-        }
-      } else if (uploadType === "diseases") {
-        // Columns: name, category
-        const items = lines.slice(1).map(line => {
-          const parts = line.split(",").map(p => p.trim());
-          const nameIdx = headers.indexOf("name");
-          const catIdx = headers.indexOf("category");
-          return {
-            name: nameIdx !== -1 ? parts[nameIdx] : parts[0],
-            category: catIdx !== -1 ? parts[catIdx] : "General"
-          };
-        });
-
-        const res = await fetch("/api/admin/diseases/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items, adminEmail: user.email })
-        });
-        const d = await res.json();
-        if (d.success) {
-          onSuccessToast({
-            title: "🌸 Diseases Configured",
-            content: `Dynamically added ${d.count} new clinical disease vectors to master database tables!`
-          });
-          setCsvText("");
-        }
-      } else if (uploadType === "kits") {
-        // Columns: name, unit, threshold
-        const items = lines.slice(1).map(line => {
-          const parts = line.split(",").map(p => p.trim());
-          const nameIdx = headers.indexOf("name");
-          const unitIdx = headers.indexOf("unit");
-          const threshIdx = headers.indexOf("threshold");
-          return {
-            name: nameIdx !== -1 ? parts[nameIdx] : parts[0],
-            unit: unitIdx !== -1 ? parts[unitIdx] : "Kits",
-            defaultThreshold: threshIdx !== -1 ? Number(parts[threshIdx]) : 10
-          };
-        });
-
-        const res = await fetch("/api/admin/kits/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items, adminEmail: user.email })
-        });
-        const d = await res.json();
-        if (d.success) {
-          onSuccessToast({
-            title: "📦 Kits Registered",
-            content: `Registered ${d.count} inventory test kits and configured stock alert levels.`
-          });
-          setCsvText("");
-        }
-      }
-    } catch (err: any) {
-      alert("Parsing failed: " + err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" id="admin-master-root">
@@ -1151,24 +1216,16 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
         </button>
 
         <button
-          onClick={() => setActiveTab("config_masters")}
+          onClick={() => setActiveTab("sheets")}
           className={`w-full text-left text-xs font-semibold px-3 py-2.5 rounded-xl transition-all flex items-center gap-2 border ${
-            activeTab === "config_masters" ? `${ct.badgeBg} ${ct.accentText}` : "border-transparent text-slate-600 hover:bg-slate-50"
+            activeTab === "sheets" ? `${ct.badgeBg} ${ct.accentText}` : "border-transparent text-slate-600 hover:bg-slate-50"
           }`}
         >
-          <Database className={`w-4 h-4 ${activeTab === "config_masters" ? ct.accentText : "text-slate-400"}`} />
-          Configuration Master Data
+          <FileSpreadsheet className={`w-4 h-4 ${activeTab === "sheets" ? ct.accentText : "text-slate-400"}`} />
+          Google Sheets Sync
         </button>
 
-        <button
-          onClick={() => setActiveTab("uploads")}
-          className={`w-full text-left text-xs font-semibold px-3 py-2.5 rounded-xl transition-all flex items-center gap-2 border ${
-            activeTab === "uploads" ? `${ct.badgeBg} ${ct.accentText}` : "border-transparent text-slate-600 hover:bg-slate-50"
-          }`}
-        >
-          <Upload className={`w-4 h-4 ${activeTab === "uploads" ? ct.accentText : "text-slate-400"}`} />
-          Excel Bulk Uploads
-        </button>
+
 
         <button
           onClick={() => setActiveTab("audits")}
@@ -1272,113 +1329,206 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
-                  {usersList.map(u => (
-                    <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="py-2.5 font-bold text-slate-800">{u.name}</td>
-                      <td className="py-2.5 font-mono text-[11px]">{u.email}</td>
-                      <td className="py-2.5">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          u.role === UserRole.SUPER_ADMIN ? "bg-rose-50 text-rose-800 border border-rose-100" :
-                          u.role === UserRole.DAUO ? "bg-amber-50 text-amber-800 border border-amber-100" :
-                          "bg-blue-50 text-blue-800 border border-blue-100"
-                        }`}>
-                          {u.role === UserRole.SUPER_ADMIN ? "super admin" : u.role === UserRole.DAUO ? "admin" : (hospitals.find(h => h.id === u.hospitalId)?.name || "Hospital")}
-                        </span>
-                      </td>
-                      <td className="py-2.5 font-semibold text-slate-500">
-                        {u.role === UserRole.SUPER_ADMIN ? "District Universal" : 
-                          hospitals.find(h => h.id === u.hospitalId)?.name || "Not assigned"
-                        }
-                      </td>
-                      <td className="py-2.5 text-center">
-                        <div className="flex items-center justify-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleUserStatus(u.email)}
-                            disabled={u.email === "manu.spng@gmail.com"}
-                            title={u.isWhitelisted ? "Deactivate User" : "Activate User"}
-                            className={`hover:scale-105 transition-all outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                              u.isWhitelisted ? "text-emerald-600 hover:text-emerald-700" : "text-slate-400 hover:text-slate-500"
-                            }`}
-                          >
-                            {u.isWhitelisted ? (
-                              <ToggleRight className="w-8 h-8" />
+                  {usersList.map(u => {
+                    const h = hospitals.find(hosp => hosp.id === u.hospitalId);
+                    return (
+                      <React.Fragment key={u.id}>
+                        <tr className="hover:bg-slate-50/50 transition-colors">
+                          <td className="py-2.5 font-bold text-slate-800">{u.name}</td>
+                          <td className="py-2.5 font-mono text-[11px]">{u.email}</td>
+                          <td className="py-2.5">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              u.role === UserRole.SUPER_ADMIN ? "bg-rose-50 text-rose-800 border border-rose-100" :
+                              u.role === UserRole.DAUO ? "bg-amber-50 text-amber-800 border border-amber-100" :
+                              "bg-blue-50 text-blue-800 border border-blue-100"
+                            }`}>
+                              {u.role === UserRole.SUPER_ADMIN ? "super admin" : u.role === UserRole.DAUO ? "admin" : (hospitals.find(hosp => hosp.id === u.hospitalId)?.name || "Hospital")}
+                            </span>
+                          </td>
+                          <td className="py-2.5 font-semibold text-slate-500">
+                            {u.role === UserRole.SUPER_ADMIN ? (
+                              "District Universal"
                             ) : (
-                              <ToggleLeft className="w-8 h-8" />
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
+                                <span className="font-semibold text-slate-800">{h?.name || "Not assigned"}</span>
+                                {h && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedUserDetails(prev => ({ ...prev, [u.id]: !prev[u.id] }))}
+                                    className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200/80 px-2 py-0.5 rounded-md transition-all inline-flex items-center gap-1 cursor-pointer w-fit"
+                                  >
+                                    {expandedUserDetails[u.id] ? (
+                                      <>
+                                        <span>Hide Details</span>
+                                        <ChevronUp className="w-3 h-3" />
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span>View Details</span>
+                                        <ChevronDown className="w-3 h-3" />
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
                             )}
-                          </button>
-                          {u.email !== "manu.spng@gmail.com" && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteUser(u.email)}
-                              title="Delete User Account"
-                              className="text-rose-500 hover:text-rose-700 hover:scale-110 transition-all outline-none cursor-pointer p-1 rounded hover:bg-rose-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      {user.role === UserRole.SUPER_ADMIN && (
-                        <td className="py-2.5 text-right">
-                          {selectedUserIdForCredentials === u.id ? (
-                            <div className="flex items-center justify-end gap-1.5">
-                              <input
-                                type="text"
-                                value={editPasswordValue}
-                                onChange={(e) => setEditPasswordValue(e.target.value)}
-                                className="bg-white border border-slate-300 rounded px-2 py-1 text-[11px] text-slate-800 font-mono w-28 outline-none focus:ring-1 focus:ring-emerald-500"
-                                placeholder="New password"
-                                autoFocus
-                              />
+                          </td>
+                          <td className="py-2.5 text-center">
+                            <div className="flex items-center justify-center gap-3">
                               <button
                                 type="button"
-                                onClick={() => handleChangeUserPassword(u.email, editPasswordValue)}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded font-bold text-[10px] transition-all cursor-pointer shadow-sm"
+                                onClick={() => handleToggleUserStatus(u.email)}
+                                disabled={u.email === "manu.spng@gmail.com"}
+                                title={u.isWhitelisted ? "Deactivate User" : "Activate User"}
+                                className={`hover:scale-105 transition-all outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                                  u.isWhitelisted ? "text-emerald-600 hover:text-emerald-700" : "text-slate-400 hover:text-slate-500"
+                                }`}
                               >
-                                Save
+                                {u.isWhitelisted ? (
+                                  <ToggleRight className="w-8 h-8" />
+                                ) : (
+                                  <ToggleLeft className="w-8 h-8" />
+                                )}
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => setSelectedUserIdForCredentials(null)}
-                                className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2 py-1 rounded font-bold text-[10px] transition-all cursor-pointer"
-                              >
-                                Cancel
-                              </button>
+                              {u.email !== "manu.spng@gmail.com" && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteUser(u.email)}
+                                  title="Delete User Account"
+                                  className="text-rose-500 hover:text-rose-700 hover:scale-110 transition-all outline-none cursor-pointer p-1 rounded hover:bg-rose-50"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
-                          ) : (
-                            <div className="flex items-center justify-end gap-2">
-                              <span className="bg-slate-50 text-slate-600 border border-slate-200 px-2 py-0.5 rounded font-mono font-medium">
-                                {showPasswordForUserId[u.id] ? (u.password || "Not set") : "••••••"}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowPasswordForUserId(prev => ({
-                                    ...prev,
-                                    [u.id]: !prev[u.id]
-                                  }));
-                                }}
-                                className="text-slate-400 hover:text-slate-600 text-[10px] font-bold underline cursor-pointer"
-                              >
-                                {showPasswordForUserId[u.id] ? "Hide" : "See"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedUserIdForCredentials(u.id);
-                                  setEditPasswordValue(u.password || "");
-                                }}
-                                className="bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100 hover:text-slate-900 text-[10px] font-bold px-2 py-0.5 rounded transition-all cursor-pointer"
-                              >
-                                Edit
-                              </button>
-                            </div>
+                          </td>
+                          {user.role === UserRole.SUPER_ADMIN && (
+                            <td className="py-2.5 text-right">
+                              {selectedUserIdForCredentials === u.id ? (
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={editPasswordValue}
+                                    onChange={(e) => setEditPasswordValue(e.target.value)}
+                                    className="bg-white border border-slate-300 rounded px-2 py-1 text-[11px] text-slate-800 font-mono w-28 outline-none focus:ring-1 focus:ring-emerald-500"
+                                    placeholder="New password"
+                                    autoFocus
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleChangeUserPassword(u.email, editPasswordValue)}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded font-bold text-[10px] transition-all cursor-pointer shadow-sm"
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedUserIdForCredentials(null)}
+                                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2 py-1 rounded font-bold text-[10px] transition-all cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-end gap-2">
+                                  <span className="bg-slate-50 text-slate-600 border border-slate-200 px-2 py-0.5 rounded font-mono font-medium">
+                                    {showPasswordForUserId[u.id] ? (u.password || "Not set") : "••••••"}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowPasswordForUserId(prev => ({
+                                        ...prev,
+                                        [u.id]: !prev[u.id]
+                                      }));
+                                    }}
+                                    className="text-slate-400 hover:text-slate-600 text-[10px] font-bold underline cursor-pointer"
+                                  >
+                                    {showPasswordForUserId[u.id] ? "Hide" : "See"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedUserIdForCredentials(u.id);
+                                      setEditPasswordValue(u.password || "");
+                                    }}
+                                    className="bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100 hover:text-slate-900 text-[10px] font-bold px-2 py-0.5 rounded transition-all cursor-pointer"
+                                  >
+                                    Edit
+                                  </button>
+                                </div>
+                              )}
+                            </td>
                           )}
-                        </td>
-                      )}
-                    </tr>
-                  ))}
+                        </tr>
+                        {u.role === UserRole.HOSPITAL_USER && h && expandedUserDetails[u.id] && (
+                          <tr className="bg-slate-50/55 animate-fadeIn">
+                            <td colSpan={user.role === UserRole.SUPER_ADMIN ? 6 : 5} className="px-4 py-3.5 border-t border-b border-slate-100">
+                              <div className="bg-white rounded-xl border border-slate-150 p-4 shadow-sm space-y-3.5 font-sans">
+                                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    <h6 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Hospital Registration Credentials</h6>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-mono bg-emerald-50 text-emerald-800 border border-emerald-100 px-2.5 py-0.5 rounded-full font-bold uppercase">
+                                      {h.type || "Government Facility"}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedUserDetails(prev => ({ ...prev, [u.id]: false }))}
+                                      className="text-[10px] font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1 cursor-pointer bg-slate-50 hover:bg-slate-100 px-2 py-0.5 rounded border border-slate-200"
+                                    >
+                                      <span>Collapse</span>
+                                      <ChevronUp className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
+                                  <div>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Hospital Name</span>
+                                    <span className="text-slate-800 font-bold">{h.name}</span>
+                                  </div>
+                                  <div>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Hospital Code</span>
+                                    <span className="text-slate-800 font-mono font-bold bg-slate-50 border border-slate-150 px-1.5 py-0.5 rounded">{h.code}</span>
+                                  </div>
+                                  <div>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Stream</span>
+                                    <span className="text-slate-800 font-semibold">{(h as any).stream || "Ayurved"}</span>
+                                  </div>
+                                  <div>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Incharge Name</span>
+                                    <span className="text-slate-800 font-bold">{h.incharge || "Dr Manvinder Pal Singh"}</span>
+                                  </div>
+                                  <div>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Block / District</span>
+                                    <span className="text-slate-800 font-semibold">{(h as any).block || "Khatima"} / {(h as any).district || "उधम सिंह नगर"}</span>
+                                  </div>
+                                  <div>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Location</span>
+                                    <span className="text-slate-800 font-semibold">{(h as any).location || "झनकट"}</span>
+                                  </div>
+                                  <div>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Official Email</span>
+                                    <span className="text-slate-700 font-semibold truncate block max-w-[180px]">{h.contactEmail || "usn.jhankat@uttarakhandayurved.co.in"}</span>
+                                  </div>
+                                  <div>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Contact Phone</span>
+                                    <span className="text-slate-700 font-semibold">{h.contactPhone ? `+91 ${h.contactPhone}` : "9455959592"}</span>
+                                  </div>
+                                </div>
+                                <div className="border-t border-slate-100 pt-2.5">
+                                  <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Address</span>
+                                  <p className="text-slate-600 font-medium text-xs leading-relaxed">{h.address || "jhankat, khatima, us nagar"}</p>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1388,12 +1538,38 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
         {/* TABS: MANAGE HOSPITALS */}
         {activeTab === "hospitals" && (
           <div className="space-y-6">
-            <div className="border-b border-slate-100 pb-3">
-              <h4 className="font-bold text-slate-800 text-sm">District Institute Directory & Custom Master Management</h4>
-              <p className="text-xs text-slate-400 font-medium">Configure facility types, codes, official logins, contact info, and directory metadata details</p>
+            <div className="border-b border-slate-100 pb-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <h4 className="font-bold text-slate-800 text-sm">District Institute Directory & Custom Master Management</h4>
+                <p className="text-xs text-slate-400 font-medium">Configure facility types, codes, official logins, contact info, and directory metadata details</p>
+              </div>
+
+              {/* Toggle Mode Pills */}
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl w-fit self-end md:self-auto animate-fadeIn">
+                <button
+                  type="button"
+                  onClick={() => setHospSubMode("single")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    hospSubMode === "single" ? "bg-white text-emerald-850 shadow-sm" : "text-slate-500 hover:text-slate-850"
+                  }`}
+                >
+                  🏥 Single Registration
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHospSubMode("bulk")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    hospSubMode === "bulk" ? "bg-white text-emerald-850 shadow-sm" : "text-slate-500 hover:text-slate-850"
+                  }`}
+                >
+                  ⚡ Bulk Registration
+                </button>
+              </div>
             </div>
 
-            {/* Dropdown Selector section */}
+            {hospSubMode === "single" ? (
+              <>
+                {/* Dropdown Selector section */}
             <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="space-y-1">
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Select Hospital to View/Edit or Add New (संस्थान चुनें):</label>
@@ -1649,12 +1825,153 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
                   ) : (
                     <>
                       <CheckCircle className="w-3.5 h-3.5" />
-                      {selectedHospId === "new" ? "Create / Register Hospital" : "Update Hospital Details"}
+                      {selectedHospId === "new" ? "Create / Register Hospital" : "Save after Editing / Update Details"}
                     </>
                   )}
                 </button>
               </div>
             </form>
+              </>
+            ) : (
+              <div className="border border-slate-150 rounded-2xl p-5 bg-white space-y-4 shadow-sm animate-fadeIn">
+                <div className="border-b border-slate-100 pb-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div>
+                    <h5 className="font-extrabold text-slate-800 text-xs uppercase tracking-wide flex items-center gap-1.5">
+                      <Zap className="w-4 h-4 text-emerald-600 animate-pulse" />
+                      Bulk Register Institutions (थोक पंजीकरण और लॉगिन आईडी निर्माण)
+                    </h5>
+                    <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                      Enter hospital records using our structured template. Registered facilities will instantly have login accounts generated.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBulkPastedData(
+                          "Type,Location,Code,Address,ContactPhone,Official Email,In-charge,Block,District,Stream,Password\n" +
+                          "राजकीय आयुर्वेदिक चिकित्सालय,Kashipur,,Kashipur Bazar,9876543210,sad.kashipur,Dr. Rajesh Sharma,Kashipur,उधम सिंह नगर,Ayurved,kash123\n" +
+                          "राजकीय यूनानी चिकित्सालय,Jaspur,SUB-JAS-452,Jaspur,9876543211,sub.jaspur,Dr. Imran Khan,Jaspur,उधम सिंह नगर,Unani,jas567"
+                        );
+                        onSuccessToast({
+                          title: "📋 Template Loaded",
+                          content: "A standard template with 2 sample entries has been loaded in the workspace below."
+                        });
+                      }}
+                      className="bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100 text-xs font-bold px-3 py-1.5 rounded-xl transition-all flex items-center gap-1 cursor-pointer shadow-sm"
+                    >
+                      📋 Load Sample Template
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+                  {/* Left Column: Rules & instructions */}
+                  <div className="xl:col-span-1 bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3 text-xs">
+                    <span className="font-bold text-slate-700 block uppercase tracking-wider text-[10px]">Guidelines & Expected Format</span>
+                    <ul className="space-y-2 text-[11px] text-slate-600 font-medium list-disc list-inside">
+                      <li>Copy records directly from **Google Sheets** or **Excel** and paste them into the box.</li>
+                      <li>Columns can be separated by commas (CSV) or tabs (spreadsheet copy-paste).</li>
+                      <li>
+                        Required headers:
+                        <ul className="pl-4 list-square text-[10px] text-slate-500 font-bold">
+                          <li><span className="text-rose-600">Location*</span> (e.g. Kashipur)</li>
+                          <li><span className="text-rose-600">In-charge*</span> (Manager Name)</li>
+                          <li><span className="text-rose-600">Official Email*</span> (Official login prefix, e.g. `sad.kashipur` which becomes `sad.kashipur@uttarakhandayurved.co.in`)</li>
+                        </ul>
+                      </li>
+                      <li>
+                        Optional columns:
+                        <ul className="pl-4 list-square text-[10px] text-slate-500">
+                          <li>Type (Defaults to राजकीय आयुर्वेदिक चिकित्सालय)</li>
+                          <li>Code (Auto-computed if left blank)</li>
+                          <li>Password (Defaults to 123456 if blank)</li>
+                          <li>Address, ContactPhone, Block, District, Stream</li>
+                        </ul>
+                      </li>
+                    </ul>
+
+                    {/* File Upload zone */}
+                    <div className="pt-2">
+                      <span className="font-bold text-slate-700 block uppercase tracking-wider text-[10px] mb-2">Or Upload CSV File</span>
+                      <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-xl p-4 bg-white hover:bg-emerald-50/20 hover:border-emerald-500/50 transition-all cursor-pointer shadow-sm">
+                        <Upload className="w-6 h-6 text-emerald-600 mb-1" />
+                        <span className="font-bold text-[10px] text-slate-500">Click to upload or Drag CSV here</span>
+                        <input
+                          type="file"
+                          accept=".csv"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                              const text = event.target?.result as string;
+                              if (text) {
+                                setBulkPastedData(text);
+                                onSuccessToast({
+                                  title: "📄 CSV File Loaded",
+                                  content: "Your CSV file content has been loaded into the input workspace below. Review and click Register."
+                                });
+                              }
+                            };
+                            reader.readAsText(file);
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Paste workspace */}
+                  <div className="xl:col-span-2 space-y-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Spreadsheet Data Workspace (डाटा पेस्ट क्षेत्र):</label>
+                      <textarea
+                        value={bulkPastedData}
+                        onChange={(e) => setBulkPastedData(e.target.value)}
+                        placeholder="Paste Google Sheets or CSV data here...&#10;e.g.&#10;Location,In-charge,Official Email,Type,Password&#10;Kashipur,Dr. Rajesh Sharma,sad.kashipur,राजकीय आयुर्वेदिक चिकित्सालय,kash123"
+                        className="w-full bg-slate-50/50 border border-slate-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-2xl p-4 h-64 text-xs font-mono outline-none shadow-inner"
+                      />
+                    </div>
+
+                    {/* Show parsing error logs */}
+                    {bulkErrors.length > 0 && (
+                      <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl p-4 space-y-1.5 max-h-40 overflow-y-auto">
+                        <span className="font-bold text-xs flex items-center gap-1.5">
+                          ⚠️ Parsing Warnings / Conflict Errors ({bulkErrors.length}):
+                        </span>
+                        <ul className="text-[11px] list-disc list-inside font-semibold font-mono text-rose-700">
+                          {bulkErrors.map((err, idx) => (
+                            <li key={idx}>{err}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={handleBulkSaveHospitals}
+                        disabled={isBulkSaving || !bulkPastedData.trim()}
+                        className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold px-6 py-3 rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        {isBulkSaving ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Processing & Registering...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="w-4 h-4" />
+                            ⚡ Register & Create Login Credentials
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Custom Configuration Masters Panel */}
             <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-5 space-y-4">
@@ -1786,11 +2103,67 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
 
             {/* Grid display directory list */}
             <div className="space-y-3 pt-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                Registered Directory Overview ({hospitals.length} Facilities)
-              </span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Registered Directory Overview ({hospitals.length} Facilities)
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allExpanded: Record<string, boolean> = {};
+                      hospitals.forEach(h => { allExpanded[h.id] = true; });
+                      setExpandedHospitals(allExpanded);
+                    }}
+                    className="text-[10px] font-bold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg transition-all cursor-pointer"
+                  >
+                    Expand All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedHospitals({})}
+                    className="text-[10px] font-bold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg transition-all cursor-pointer"
+                  >
+                    Collapse All
+                  </button>
+                </div>
+              </div>
+
+              {/* Search filter for large hospital directory */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="🔍 Search facilities by name, code, location, block, district..."
+                  value={hospitalSearch}
+                  onChange={(e) => setHospitalSearch(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500/20 shadow-sm"
+                />
+                {hospitalSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setHospitalSearch("")}
+                    className="absolute right-3 top-2.5 text-xs text-slate-400 hover:text-slate-600 font-bold"
+                  >
+                    ✕ Clear
+                  </button>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 gap-4">
-                {hospitals.map(h => {
+                {hospitals
+                  .filter(h => {
+                    if (!hospitalSearch.trim()) return true;
+                    const q = hospitalSearch.toLowerCase();
+                    return (
+                      h.name.toLowerCase().includes(q) ||
+                      h.code.toLowerCase().includes(q) ||
+                      (h.type && h.type.toLowerCase().includes(q)) ||
+                      ((h as any).location && (h as any).location.toLowerCase().includes(q)) ||
+                      ((h as any).block && (h as any).block.toLowerCase().includes(q)) ||
+                      ((h as any).district && (h as any).district.toLowerCase().includes(q))
+                    );
+                  })
+                  .map(h => {
                   const isExpanded = !!expandedHospitals[h.id];
                   return (
                     <div
@@ -1909,135 +2282,15 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
           </div>
         )}
 
-        {/* TABS: SPREADSHEET BULK UPLOADS */}
-        {activeTab === "uploads" && (
-          <div className="space-y-5">
-            <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
-              <div>
-                <h4 className="font-bold text-slate-800 text-sm">Excel CSV Master Sheet Uploads</h4>
-                <p className="text-xs text-slate-400">Dynamically update institutions, test kits, or disease taxonomies without code changes</p>
-              </div>
-              <FileSpreadsheet className="w-5 h-5 text-slate-400" />
-            </div>
 
-            <div className="space-y-4">
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-semibold text-slate-600">1. Select Target Master Table</label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      let headers = "";
-                      let sampleData = "";
-                      if (uploadType === "hospitals") {
-                        headers = "name,code,type,address,email,phone,location,block,district,stream";
-                        sampleData = "राजकीय आयुर्वेदिक चिकित्सालय झनकट,AYUSH-JHK-01,राजकीय आयुर्वेदिक चिकित्सालय,Khatima Rd,jhankat.ayush@gov.in,9411223344,झनकट,खटीमा,उधम सिंह नगर,Ayurved\nराजकीय आयुर्वेदिक चिकित्सालय सितारगंज,AYUSH-STG-02,राजकीय आयुर्वेदिक चिकित्सालय,Sitarganj Rd,,9411223355,सितारगंज,सितारगंज,उधम सिंह नगर,Ayurved";
-                      } else if (uploadType === "diseases") {
-                        headers = "name,category";
-                        sampleData = "Sciatica / Gridhrasi,Joint Disorders\nSinusitis / Pinasa,Respiratory\nArthritis / Sandhigata Vata,Joint Disorders\nAsthma / Tamaka Shwasa,Respiratory";
-                      } else {
-                        headers = "name,unit,threshold";
-                        sampleData = "Malaria Antigen,Kits,15\nUrine Strip Multi,Strips,20\nHb Estimation Kit,Tests,10";
-                      }
-                      const blob = new Blob([`${headers}\n${sampleData}`], { type: "text/csv;charset=utf-8;" });
-                      const url = URL.createObjectURL(blob);
-                      const link = document.createElement("a");
-                      link.setAttribute("href", url);
-                      link.setAttribute("download", `${uploadType}_bulk_upload_template.csv`);
-                      link.style.visibility = 'hidden';
-                      document.body.appendChild(link);
-                      link.click();
-                      document.body.removeChild(link);
-                    }}
-                    className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-colors border border-emerald-200"
-                  >
-                    <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
-                    Download Excel CSV Template
-                  </button>
-                </div>
-                <div className="flex gap-3">
-                  {["hospitals", "diseases", "kits"].map(type => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => {
-                        setUploadType(type as any);
-                        setCsvText("");
-                      }}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold capitalize transition-all border ${
-                        uploadType === type 
-                          ? "bg-slate-800 text-white border-slate-900" 
-                          : "bg-slate-50 text-slate-600 border-slate-200"
-                      }`}
-                    >
-                      {type} Table
-                    </button>
-                  ))}
-                </div>
-              </div>
 
-              {/* Template help guidelines */}
-              <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-[10px] text-amber-800 space-y-1">
-                <span className="font-bold flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
-                  Format Requirements: Past CSV representation of Excel spreadsheet below:
-                </span>
-                {uploadType === "hospitals" && (
-                  <div className="space-y-1 bg-white p-2 rounded border border-amber-200">
-                    <p className="font-mono text-slate-600 font-semibold">
-                      name,code,type,address,email,phone,location,block,district,stream
-                    </p>
-                    <p className="font-mono text-slate-400 text-[9px]">
-                      राजकीय आयुर्वेदिक चिकित्सालय झनकट, AYUSH-JHK-01, राजकीय आयुर्वेदिक चिकित्सालय, Khatima Rd, , 9411223344, झनकट, खटीमा, उधम सिंह नगर, Ayurved
-                    </p>
-                    <p className="text-[9px] text-emerald-700 font-semibold mt-1">
-                      💡 Tip: Leave the "email" field blank to automatically assign the designated email ID based on Location/Town (e.g., झनकट ➡️ jhankat.ayush@gov.in).
-                    </p>
-                  </div>
-                )}
-                {uploadType === "diseases" && (
-                  <p className="font-mono text-slate-600 font-semibold bg-white p-1.5 rounded border border-amber-200">
-                    name, category<br />
-                    Sciatica / Gridhrasi, Joint Disorders<br />
-                    Sinusitis / Pinasa, Respiratory
-                  </p>
-                )}
-                {uploadType === "kits" && (
-                  <p className="font-mono text-slate-600 font-semibold bg-white p-1.5 rounded border border-amber-200">
-                    name, unit, threshold<br />
-                    Malaria Antigen, Kits, 15<br />
-                    Urine Strip Multi, Strips, 20
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">2. Paste CSV Rows (Excel Spreadsheet Representation)</label>
-                <textarea
-                  value={csvText}
-                  onChange={(e) => setCsvText(e.target.value)}
-                  placeholder="Paste comma-separated rows with column headers here..."
-                  className="w-full h-40 bg-slate-50/50 border border-slate-200 rounded-xl p-3 font-mono text-[11px] text-slate-700 outline-none focus:ring-1 focus:ring-slate-400"
-                />
-              </div>
-
-              <div className="text-right">
-                <button
-                  type="button"
-                  onClick={handleBulkUpload}
-                  disabled={isLoading || !csvText.trim()}
-                  className="bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white font-bold text-xs px-5 py-2.5 rounded-xl flex items-center gap-1.5 inline-flex shadow-sm transition-all"
-                >
-                  {isLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <FileUp className="w-3.5 h-3.5" />
-                  )}
-                  Process Master Spreadsheet
-                </button>
-              </div>
-            </div>
-          </div>
+        {/* TABS: GOOGLE SHEETS INTEGRATION HUB */}
+        {activeTab === "sheets" && (
+          <ReportDesigner
+            user={user}
+            onSuccessToast={onSuccessToast}
+            setActiveTab={() => {}}
+          />
         )}
 
         {/* TABS: SYSTEM AUDIT LOGS */}
@@ -2072,498 +2325,7 @@ export default function AdminMasterTables({ user, onSuccessToast }: AdminMasterT
           </div>
         )}
 
-        {/* TABS: CONFIGURATION MASTERS */}
-        {activeTab === "config_masters" && (
-          <div className="space-y-6">
-            <div className="border-b border-slate-100 pb-3 flex flex-col md:flex-row md:items-center justify-between gap-2">
-              <div>
-                <h4 className="font-bold text-slate-800 text-sm">System Configuration & Master Data Management</h4>
-                <p className="text-xs text-slate-400">View, update, and manage core system dropdown lists, diseases, and lab test inventories</p>
-              </div>
-              
-              {/* Nested Sub-Tabs */}
-              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl w-fit self-end md:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setConfigSubTab("dropdowns")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
-                    configSubTab === "dropdowns" ? "bg-white text-emerald-800 shadow-sm" : "text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  <ListFilter className="w-3.5 h-3.5 text-emerald-600" />
-                  Hospital Dropdowns
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfigSubTab("diseases")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
-                    configSubTab === "diseases" ? "bg-white text-emerald-800 shadow-sm" : "text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                  List of Diseases
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfigSubTab("tests")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
-                    configSubTab === "tests" ? "bg-white text-emerald-800 shadow-sm" : "text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
-                  Available Tests
-                </button>
-              </div>
-            </div>
 
-            {/* SUB-TAB 1: HOSPITAL DROPDOWN MASTERS */}
-            {configSubTab === "dropdowns" && (
-              <div className="space-y-6">
-                <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-4 text-xs text-emerald-900 space-y-1">
-                  <p className="font-bold">💡 Dropdown List Viewer & Master Manager</p>
-                  <p className="text-slate-600">Select a master configuration list below to inspect the existing data options, update them, edit individual values, or add new items. Changes reflect instantly inside all hospital edit forms.</p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-                  {/* Select Dropdown Category list */}
-                  <div className="md:col-span-4 space-y-4">
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Select Dropdown Master:</label>
-                      <select
-                        value={selectedDropdownCategory}
-                        onChange={(e) => setSelectedDropdownCategory(e.target.value)}
-                        className="w-full bg-white border border-slate-250 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
-                      >
-                        <option value="categories">Hospital Category</option>
-                        <option value="hospitalTypes">Type of Hospitals</option>
-                        <option value="locations">Location / Town</option>
-                        <option value="blocks">Block (विकासखंड)</option>
-                        <option value="districts">District (जनपद)</option>
-                        <option value="emailIds">Official Email IDs</option>
-                      </select>
-                    </div>
-
-                    {/* LIVE DROP_DOWN DEMO */}
-                    <div className="bg-slate-50 border border-slate-150 rounded-2xl p-4 space-y-2">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Live Dropdown Mockup (पूर्वावलोकन):</span>
-                      <p className="text-[11px] text-slate-500">This is exactly how this dropdown list behaves inside the "Manage Hospitals" layout:</p>
-                      <select 
-                        className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 cursor-pointer"
-                        disabled
-                      >
-                        {(masters[selectedDropdownCategory as keyof typeof masters] || []).length === 0 ? (
-                          <option>-- No options available --</option>
-                        ) : (
-                          (masters[selectedDropdownCategory as keyof typeof masters] || []).map((item: string, idx: number) => (
-                            <option key={idx} value={item}>{item}</option>
-                          ))
-                        )}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Edit list items area */}
-                  <div className="md:col-span-8 border border-slate-150 rounded-2xl p-5 bg-white space-y-4 shadow-sm">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                      <h5 className="font-extrabold text-slate-800 text-xs uppercase tracking-wide">
-                        Configure Options ({(masters[selectedDropdownCategory as keyof typeof masters] || []).length} items found)
-                      </h5>
-                    </div>
-
-                    {/* Add New Row */}
-                    <div className="flex gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100">
-                      <input
-                        type="text"
-                        placeholder={`Add new option to ${selectedDropdownCategory}...`}
-                        value={newItemValue[selectedDropdownCategory] || ""}
-                        onChange={(e) => setNewItemValue(prev => ({ ...prev, [selectedDropdownCategory]: e.target.value }))}
-                        className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 outline-none focus:ring-1 focus:ring-emerald-500 font-semibold shadow-sm"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleAddMasterItem(selectedDropdownCategory)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-4 py-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer shadow-sm"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Add Option
-                      </button>
-                    </div>
-
-                    {/* Options List */}
-                    <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto pr-1 border border-slate-100 rounded-xl bg-slate-50/20">
-                      {(masters[selectedDropdownCategory as keyof typeof masters] || []).length === 0 ? (
-                        <div className="p-4 text-center text-xs text-slate-400">No options configured in this master list yet. Use the field above to add.</div>
-                      ) : (
-                        (masters[selectedDropdownCategory as keyof typeof masters] || []).map((item: string, idx: number) => {
-                          const isEditing = editingItem?.category === selectedDropdownCategory && editingItem?.index === idx;
-                          return (
-                            <div key={idx} className="flex items-center justify-between p-3 text-xs font-semibold hover:bg-slate-50/50 transition-colors">
-                              {isEditing ? (
-                                <input
-                                  type="text"
-                                  value={editingItem.value}
-                                  onChange={(e) => setEditingItem(prev => prev ? { ...prev, value: e.target.value } : null)}
-                                  className="flex-1 bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-inner"
-                                  autoFocus
-                                />
-                              ) : (
-                                <span className="text-slate-700 font-medium">
-                                  {item}
-                                </span>
-                              )}
-
-                              <div className="flex items-center gap-2 ml-4">
-                                {isEditing ? (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSaveMasterItemEdit(selectedDropdownCategory, idx)}
-                                      className="text-emerald-700 hover:text-emerald-900 font-extrabold text-[11px] cursor-pointer"
-                                    >
-                                      Save
-                                    </button>
-                                    <span className="text-slate-300">|</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditingItem(null)}
-                                      className="text-slate-400 hover:text-slate-600 font-bold text-[11px] cursor-pointer"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditingItem({ category: selectedDropdownCategory, index: idx, value: item })}
-                                      className="text-emerald-600 hover:text-emerald-800 hover:underline font-bold text-[11px] cursor-pointer"
-                                    >
-                                      Edit
-                                    </button>
-                                    <span className="text-slate-200">|</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteMasterItem(selectedDropdownCategory, idx)}
-                                      className="text-rose-600 hover:text-rose-800 hover:underline font-bold text-[11px] cursor-pointer"
-                                    >
-                                      Delete
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* SUB-TAB 2: LIST OF DISEASES */}
-            {configSubTab === "diseases" && (
-              <div className="space-y-6">
-                <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-4 text-xs text-emerald-900 space-y-1">
-                  <p className="font-bold">🦠 Master Diseases Repository Management</p>
-                  <p className="text-slate-600">Register, edit, or remove master diseases. These diseases dictate the entries required on each hospital's Daily Calendar Entry sheets.</p>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  {/* Form to Add Disease */}
-                  <div className="lg:col-span-4 border border-slate-150 rounded-2xl p-4 bg-slate-50/50 space-y-3 h-fit">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Add Clinical Disease (नई बीमारी जोड़ें):</span>
-                    <form onSubmit={handleAddDisease} className="space-y-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Disease Name (बीमारी का नाम):</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. Tamaka Shwasa / Asthma"
-                          value={newDiseaseName}
-                          onChange={(e) => setNewDiseaseName(e.target.value)}
-                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 outline-none focus:ring-1 focus:ring-emerald-500 font-semibold"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Category (श्रेणी):</label>
-                        <select
-                          value={newDiseaseCategory}
-                          onChange={(e) => setNewDiseaseCategory(e.target.value)}
-                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 outline-none focus:ring-1 focus:ring-emerald-500 font-bold cursor-pointer"
-                        >
-                          <option value="General">General Medicine</option>
-                          <option value="Respiratory">Respiratory</option>
-                          <option value="Digestive">Digestive</option>
-                          <option value="Neurological">Neurological</option>
-                          <option value="Joint Disorders">Joint Disorders</option>
-                          <option value="Metabolic">Metabolic</option>
-                          <option value="Dermatological">Dermatological</option>
-                          <option value="Paediatric">Paediatric</option>
-                        </select>
-                      </div>
-                      <button
-                        type="submit"
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        Add Disease Vector
-                      </button>
-                    </form>
-                  </div>
-
-                  {/* List of Diseases Table */}
-                  <div className="lg:col-span-8 border border-slate-150 rounded-2xl p-5 bg-white space-y-4 shadow-sm">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                      <h5 className="font-extrabold text-slate-800 text-xs uppercase tracking-wide">
-                        Master Diseases Directory ({masterDiseases.length} configured)
-                      </h5>
-                    </div>
-
-                    <div className="overflow-x-auto border border-slate-100 rounded-xl max-h-96">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                            <th className="py-2.5 px-3">ID</th>
-                            <th className="py-2.5 px-3">Disease Name</th>
-                            <th className="py-2.5 px-3">Category</th>
-                            <th className="py-2.5 px-3 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                          {masterDiseases.map((dis) => {
-                            const isEditing = editingDisease?.id === dis.id;
-                            return (
-                              <tr key={dis.id} className="hover:bg-slate-50/50">
-                                <td className="py-2 px-3 font-mono text-[10px] text-slate-400">{dis.id}</td>
-                                <td className="py-2 px-3">
-                                  {isEditing ? (
-                                    <input
-                                      type="text"
-                                      value={editingDisease.name}
-                                      onChange={(e) => setEditingDisease(prev => prev ? { ...prev, name: e.target.value } : null)}
-                                      className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-800 font-semibold w-full focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-inner"
-                                    />
-                                  ) : (
-                                    <span className="font-bold text-slate-800">{dis.name}</span>
-                                  )}
-                                </td>
-                                <td className="py-2 px-3">
-                                  {isEditing ? (
-                                    <select
-                                      value={editingDisease.category}
-                                      onChange={(e) => setEditingDisease(prev => prev ? { ...prev, category: e.target.value } : null)}
-                                      className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-800 font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                                    >
-                                      <option value="General">General Medicine</option>
-                                      <option value="Respiratory">Respiratory</option>
-                                      <option value="Digestive">Digestive</option>
-                                      <option value="Neurological">Neurological</option>
-                                      <option value="Joint Disorders">Joint Disorders</option>
-                                      <option value="Metabolic">Metabolic</option>
-                                      <option value="Dermatological">Dermatological</option>
-                                      <option value="Paediatric">Paediatric</option>
-                                    </select>
-                                  ) : (
-                                    <span className="bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-full font-bold text-[10px]">
-                                      {dis.category}
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="py-2 px-3 text-right">
-                                  {isEditing ? (
-                                    <div className="flex justify-end gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={handleEditDiseaseSave}
-                                        className="text-emerald-700 hover:underline font-extrabold text-[11px] cursor-pointer"
-                                      >
-                                        Save
-                                      </button>
-                                      <span className="text-slate-300">|</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingDisease(null)}
-                                        className="text-slate-400 hover:underline font-semibold text-[11px] cursor-pointer"
-                                      >
-                                        Cancel
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex justify-end gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingDisease({ id: dis.id, name: dis.name, category: dis.category })}
-                                        className="text-emerald-600 hover:text-emerald-800 hover:underline font-bold text-[11px] cursor-pointer"
-                                      >
-                                        Edit
-                                      </button>
-                                      <span className="text-slate-200">|</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleDeleteDisease(dis.id, dis.name)}
-                                        className="text-rose-600 hover:text-rose-800 hover:underline font-bold text-[11px] cursor-pointer"
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* SUB-TAB 3: AVAILABLE LAB TESTS */}
-            {configSubTab === "tests" && (
-              <div className="space-y-6">
-                <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-4 text-xs text-emerald-900 space-y-1">
-                  <p className="font-bold">🧪 Available Clinical Investigations & Tests</p>
-                  <p className="text-slate-600">Register, edit, or remove lab investigation options. These represent available laboratory tests across the district facilities.</p>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  {/* Form to Add Test */}
-                  <div className="lg:col-span-4 border border-slate-150 rounded-2xl p-4 bg-slate-50/50 space-y-3 h-fit">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Add Investigation Test (नया लैब टेस्ट जोड़ें):</span>
-                    <form onSubmit={handleAddTest} className="space-y-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Test Name (लैब टेस्ट का नाम):</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. Urine Albumin / Hb Test"
-                          value={newTestName}
-                          onChange={(e) => setNewTestName(e.target.value)}
-                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 outline-none focus:ring-1 focus:ring-emerald-500 font-semibold"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Normal Range (सामान्य सीमा):</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Negative or 12-16 g/dL"
-                          value={newTestNormalRange}
-                          onChange={(e) => setNewTestNormalRange(e.target.value)}
-                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
-                        />
-                      </div>
-                      <button
-                        type="submit"
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2 rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        Add Investigation
-                      </button>
-                    </form>
-                  </div>
-
-                  {/* List of Tests Table */}
-                  <div className="lg:col-span-8 border border-slate-150 rounded-2xl p-5 bg-white space-y-4 shadow-sm">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                      <h5 className="font-extrabold text-slate-800 text-xs uppercase tracking-wide">
-                        Available Laboratory Investigations ({masterTests.length} tests)
-                      </h5>
-                    </div>
-
-                    <div className="overflow-x-auto border border-slate-100 rounded-xl max-h-96">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                            <th className="py-2.5 px-3">ID</th>
-                            <th className="py-2.5 px-3">Test Name</th>
-                            <th className="py-2.5 px-3">Normal Range</th>
-                            <th className="py-2.5 px-3 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                          {masterTests.map((t) => {
-                            const isEditing = editingTest?.id === t.id;
-                            return (
-                              <tr key={t.id} className="hover:bg-slate-50/50">
-                                <td className="py-2 px-3 font-mono text-[10px] text-slate-400">{t.id}</td>
-                                <td className="py-2 px-3">
-                                  {isEditing ? (
-                                    <input
-                                      type="text"
-                                      value={editingTest.name}
-                                      onChange={(e) => setEditingTest(prev => prev ? { ...prev, name: e.target.value } : null)}
-                                      className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-800 font-semibold w-full focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-inner"
-                                    />
-                                  ) : (
-                                    <span className="font-bold text-slate-800">{t.name}</span>
-                                  )}
-                                </td>
-                                <td className="py-2 px-3">
-                                  {isEditing ? (
-                                    <input
-                                      type="text"
-                                      value={editingTest.normalRange}
-                                      onChange={(e) => setEditingTest(prev => prev ? { ...prev, normalRange: e.target.value } : null)}
-                                      className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-800 font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                                    />
-                                  ) : (
-                                    <span className="bg-slate-50 text-slate-600 border border-slate-200 px-2 py-0.5 rounded font-mono font-bold text-[10px]">
-                                      {t.normalRange || "Negative"}
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="py-2 px-3 text-right">
-                                  {isEditing ? (
-                                    <div className="flex justify-end gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={handleEditTestSave}
-                                        className="text-emerald-700 hover:underline font-extrabold text-[11px] cursor-pointer"
-                                      >
-                                        Save
-                                      </button>
-                                      <span className="text-slate-300">|</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingTest(null)}
-                                        className="text-slate-400 hover:underline font-semibold text-[11px] cursor-pointer"
-                                      >
-                                        Cancel
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex justify-end gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingTest({ id: t.id, name: t.name, normalRange: t.normalRange })}
-                                        className="text-emerald-600 hover:text-emerald-800 hover:underline font-bold text-[11px] cursor-pointer"
-                                      >
-                                        Edit
-                                      </button>
-                                      <span className="text-slate-200">|</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleDeleteTest(t.id, t.name)}
-                                        className="text-rose-600 hover:text-rose-800 hover:underline font-bold text-[11px] cursor-pointer"
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
 
       </div>
 

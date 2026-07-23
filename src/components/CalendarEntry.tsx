@@ -1534,7 +1534,7 @@ export default function CalendarEntry({
                   } text-white px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
                   {editingDiseaseId ? <CheckCircle2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                  {editingDiseaseId ? "Update Disease Entry" : "Add / Update Disease Entry"}
+                  {editingDiseaseId ? "Save After Editing" : "Add / Update Disease Entry"}
                 </button>
               </div>
             </div>

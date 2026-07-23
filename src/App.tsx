@@ -87,10 +87,21 @@ const safeStorage = {
 
 const INITIAL_MOCK_DB = {
   hospitals: [
-    { id: "hosp-jhankat", name: "राजकीय आयुर्वेदिक चिकित्सालय - बाजपुर", code: "SAD-BJP-01", type: "SAD", location: "बाजपुर", address: "Bajpur, District Udham Singh Nagar, Uttarakhand", contactEmail: "jhankat.ayush@gov.in", contactPhone: "9411223344", isActive: true, incharge: "Dr. Singh", block: "बाजपुर", district: "उधम सिंह नगर", stream: "Ayurved" },
-    { id: "hosp-khatima", name: "राजकीय आयुर्वेदिक चिकित्सालय - खटीमा", code: "SAD-KHT-02", type: "SAD", location: "खटीमा", address: "Main Market, Khatima, Uttarakhand", contactEmail: "khatima.ayush@gov.in", contactPhone: "9411223355", isActive: true, incharge: "Dr. Joshi", block: "खटीमा", district: "उधम सिंह नगर", stream: "Ayurved" },
-    { id: "hosp-tanakpur", name: "राजकीय यूनानी चिकित्सालय - सितारगंज", code: "SUB-STG-03", type: "राजकीय यूनानी चिकित्सालय", location: "सितारगंज", address: "Railway Station Road, Tanakpur, Uttarakhand", contactEmail: "tanakpur.ayush@gov.in", contactPhone: "9411223366", isActive: true, incharge: "Dr. Khan", block: "सितारगंज", district: "उधम सिंह नगर", stream: "Unani" },
-    { id: "hosp-banbasa", name: "आयुष्मान आरोग्य मंदिर - जसपुर", code: "AAM-JSP-04", type: "आयुष्मान आरोग्य मंदिर", location: "जसपुर", address: "NH-9, Banbasa Border, Uttarakhand", contactEmail: "banbasa.ayush@gov.in", contactPhone: "9411223377", isActive: true, incharge: "Dr. Rawat", block: "जसपुर", district: "उधम सिंह नगर", stream: "Ayurved" }
+    {
+      id: "hosp-d1dgsvb7d",
+      name: "राजकीय आयुर्वेदिक चिकित्सालय - झनकट",
+      code: "00",
+      type: "राजकीय आयुर्वेदिक चिकित्सालय",
+      location: "झनकट",
+      address: "jhankat, khatima, us nagar",
+      contactEmail: "usn.jhankat@uttarakhandayurved.co.in",
+      contactPhone: "9455959592",
+      isActive: true,
+      incharge: "Dr Manvinder Pal Singh",
+      block: "Khatima",
+      district: "उधम सिंह नगर",
+      stream: "Ayurved"
+    }
   ],
   hospitalDropdownOptions: [
     { id: "hosp-unregistered-1", name: "राजकीय आयुर्वेदिक चिकित्सालय - बन्नाखेड़ा", code: "SAD-BNK-05", type: "SAD", location: "बन्नाखेड़ा", address: "Bannakhera, Uttarakhand", isActive: true, block: "बाजपुर", district: "उधम सिंह नगर", stream: "Ayurved" },
@@ -2230,47 +2241,17 @@ export default function App() {
                 </button>
               )}
 
-              {user.role === UserRole.SUPER_ADMIN && (
-                <button
-                  onClick={() => { setActiveTab("masters"); setIsMobileNavExpanded(false); }}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                    activeTab === "masters"
-                      ? `${theme.activeTabBg} shadow border`
-                      : `${theme.inactiveTabHover}`
-                  }`}
-                >
-                  <Settings className="w-4 h-4 opacity-80" />
-                  <span>System Master Control</span>
-                </button>
-              )}
-
-              {(user.role === UserRole.SUPER_ADMIN || user.role === UserRole.DAUO) && (
-                <button
-                  onClick={() => { setActiveTab("templates"); setIsMobileNavExpanded(false); }}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                    activeTab === "templates"
-                      ? `${theme.activeTabBg} shadow border`
-                      : `${theme.inactiveTabHover}`
-                  }`}
-                >
-                  <FileSpreadsheet className="w-4 h-4 opacity-80" />
-                  <span>Template Gallery</span>
-                </button>
-              )}
-
-              {(user.role === UserRole.HOSPITAL_USER || user.role === UserRole.SUPER_ADMIN) && (
-                <button
-                  onClick={() => { setActiveTab("settings"); setIsMobileNavExpanded(false); }}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                    activeTab === "settings"
-                      ? `${theme.activeTabBg} shadow border`
-                      : `${theme.inactiveTabHover}`
-                  }`}
-                >
-                  <Settings className="w-4 h-4 opacity-80" />
-                  <span>{user.role === UserRole.SUPER_ADMIN ? "Admin Profile & Settings" : "Facility Settings"}</span>
-                </button>
-              )}
+              <button
+                onClick={() => { setActiveTab("settings"); setIsMobileNavExpanded(false); }}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  activeTab === "settings" || activeTab === "masters" || activeTab === "templates"
+                    ? `${theme.activeTabBg} shadow border`
+                    : `${theme.inactiveTabHover}`
+                }`}
+              >
+                <Settings className="w-4 h-4 opacity-80" />
+                <span>Settings</span>
+              </button>
 
               <button
                 onClick={() => { setActiveTab("about"); setIsMobileNavExpanded(false); }}
@@ -2448,21 +2429,6 @@ export default function App() {
                   </div>
                 )}
 
-                {(user.role === UserRole.HOSPITAL_USER || user.role === UserRole.SUPER_ADMIN) && (
-                  <div className={activeTab === "settings" ? "block" : "hidden"}>
-                    <FacilitySettings
-                      user={user}
-                      hospitalId={activeHospital?.id || hospital?.id || "hosp-assigned"}
-                      hospitalName={activeHospital?.name || hospital?.name || "Assigned Ayurvedic Hospital"}
-                      onSuccessToast={showToast}
-                      onProfileUpdate={(updatedUser) => {
-                        setUser(updatedUser);
-                        safeStorage.setItem("mpr_user", JSON.stringify(updatedUser));
-                      }}
-                    />
-                  </div>
-                )}
-
                 <div className={activeTab === "mpr" ? "block" : "hidden"}>
                   <MPRReport 
                     user={user} 
@@ -2486,21 +2452,34 @@ export default function App() {
                   </div>
                 )}
 
-                {user.role === UserRole.SUPER_ADMIN && (
-                  <div className={activeTab === "masters" ? "block" : "hidden"}>
+                {(user.role === UserRole.SUPER_ADMIN || user.role === UserRole.DAUO) ? (
+                  <div className={activeTab === "settings" || activeTab === "masters" || activeTab === "templates" ? "block space-y-6" : "hidden"}>
                     <AdminMasterTables
                       user={user}
                       onSuccessToast={showToast}
                     />
-                  </div>
-                )}
-
-                {(user.role === UserRole.SUPER_ADMIN || user.role === UserRole.DAUO) && (
-                  <div className={activeTab === "templates" ? "block" : "hidden"}>
-                    <ReportDesigner
+                    <FacilitySettings
                       user={user}
+                      hospitalId={activeHospital?.id || hospital?.id || "hosp-assigned"}
+                      hospitalName={activeHospital?.name || hospital?.name || "Assigned Ayurvedic Hospital"}
                       onSuccessToast={showToast}
-                      setActiveTab={setActiveTab}
+                      onProfileUpdate={(updatedUser) => {
+                        setUser(updatedUser);
+                        safeStorage.setItem("mpr_user", JSON.stringify(updatedUser));
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className={activeTab === "settings" ? "block" : "hidden"}>
+                    <FacilitySettings
+                      user={user}
+                      hospitalId={activeHospital?.id || hospital?.id || "hosp-assigned"}
+                      hospitalName={activeHospital?.name || hospital?.name || "Assigned Ayurvedic Hospital"}
+                      onSuccessToast={showToast}
+                      onProfileUpdate={(updatedUser) => {
+                        setUser(updatedUser);
+                        safeStorage.setItem("mpr_user", JSON.stringify(updatedUser));
+                      }}
                     />
                   </div>
                 )}

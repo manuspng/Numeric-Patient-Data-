@@ -237,9 +237,19 @@ async function syncHospitalsFromFirestore(localDb: DBStore): Promise<boolean> {
     if (fbHospitals.length > 0) {
       console.log(`Synced ${fbHospitals.length} hospitals from Firestore.`);
       
-      // Filter out any Firestore hospitals that do not have an incharge name
-      const fbRegistered = fbHospitals.filter(h => h.incharge && h.incharge.trim() !== "");
-      const fbUnregistered = fbHospitals.filter(h => !h.incharge || h.incharge.trim() === "");
+      // Filter out any Firestore hospitals that do not have an incharge name or are unregistered dropdown options
+      const fbRegistered = fbHospitals.filter(h => 
+        h.id !== "hosp-unregistered-1" && 
+        h.id !== "hosp-unregistered-2" && 
+        h.incharge && 
+        h.incharge.trim() !== ""
+      );
+      const fbUnregistered = fbHospitals.filter(h => 
+        h.id === "hosp-unregistered-1" || 
+        h.id === "hosp-unregistered-2" || 
+        !h.incharge || 
+        h.incharge.trim() === ""
+      );
 
       // Delete unregistered ones from Firestore so they don't leak as registered profiles
       for (const unHosp of fbUnregistered) {
@@ -442,30 +452,63 @@ function loadDB(): DBStore {
 
       let changed = false;
 
-      // Maintain all hospitals in db.hospitals as the single source of truth.
-      // Merge db.hospitalDropdownOptions back into db.hospitals to prevent ghost data.
-      if (db.hospitalDropdownOptions && db.hospitalDropdownOptions.length > 0) {
-        if (!db.hospitals) {
-          db.hospitals = [];
+      // Maintain hospitalDropdownOptions separately and do NOT merge into db.hospitals
+      const originalDropdownLen = db.hospitalDropdownOptions?.length || 0;
+      db.hospitalDropdownOptions = [
+        {
+          id: "hosp-unregistered-1",
+          name: "राजकीय आयुर्वेदिक चिकित्सालय - बन्नाखेड़ा",
+          code: "SAD-BNK-05",
+          type: "राजकीय आयुर्वेदिक चिकित्सालय",
+          location: "बन्नाखेड़ा",
+          address: "Bannakhera, Uttarakhand",
+          isActive: true,
+          block: "बाजपुर",
+          district: "उधम सिंह नगर",
+          stream: "Ayurved",
+          incharge: "",
+          category: "State Hospital"
+        },
+        {
+          id: "hosp-unregistered-2",
+          name: "राजकीय आयुर्वेदिक चिकित्सालय - गदरपुर",
+          code: "SAD-GDP-06",
+          type: "राजकीय आयुर्वेदिक चिकित्सालय",
+          location: "गदरपुर",
+          address: "Gadarpur, Uttarakhand",
+          isActive: true,
+          block: "गदरपुर",
+          district: "उधम सिंह नगर",
+          stream: "Ayurved",
+          incharge: "",
+          category: "State Hospital"
         }
-        for (const h of db.hospitalDropdownOptions) {
-          if (!db.hospitals.some(existing => existing.id === h.id)) {
-            db.hospitals.push(h);
-            changed = true;
-          }
-        }
-        db.hospitalDropdownOptions = [];
+      ];
+      if (originalDropdownLen !== 2) {
         changed = true;
       }
-      if (!db.hospitalTypes || db.hospitalTypes.length === 0) {
-        db.hospitalTypes = [
-          "राजकीय आयुर्वेदिक चिकित्सालय",
-          "राजकीय यूनानी चिकित्सालय",
-          "आयुष विंग( पुरुष ) जिला चिकित्सालय",
-          "आयुष विंग( महिला ) जिला चिकित्सालय",
-          "आयुष विंग - अति प्राथमिक चिकित्सालय",
-          "आयुष्मान आरोग्य मंदिर"
-        ];
+
+      // Remove any unregistered dropdown option hospitals from db.hospitals to prevent duplication and ghost registered facilities
+      if (db.hospitals) {
+        const initialLen = db.hospitals.length;
+        db.hospitals = db.hospitals.filter(h => 
+          h.id !== "hosp-unregistered-1" && 
+          h.id !== "hosp-unregistered-2" && 
+          (h.id === "hosp-d1dgsvb7d" || (h.incharge && h.incharge.trim() !== ""))
+        );
+        if (db.hospitals.length !== initialLen) {
+          changed = true;
+        }
+      }
+
+      // Simplify and enforce only the 3 main hospital types requested to avoid confusion
+      const expectedTypes = [
+        "राजकीय आयुर्वेदिक चिकित्सालय",
+        "राजकीय यूनानी चिकित्सालय",
+        "आयुष्मान आरोग्य मंदिर"
+      ];
+      if (!db.hospitalTypes || JSON.stringify(db.hospitalTypes) !== JSON.stringify(expectedTypes)) {
+        db.hospitalTypes = expectedTypes;
         changed = true;
       }
       if (!db.streams || db.streams.length === 0) {
@@ -496,16 +539,15 @@ function loadDB(): DBStore {
         ];
         changed = true;
       }
-      if (!db.categories || db.categories.length === 0) {
-        db.categories = [
-          "District Hospital",
-          "Sub-District Hospital",
-          "CH",
-          "PHC",
-          "CHC",
-          "State Hospital",
-          "Ayush Wing"
-        ];
+
+      // Simplify categories to keep registration clean
+      const expectedCategories = [
+        "Ayush Wing",
+        "Ayushman Arogya Mandir",
+        "State Hospital"
+      ];
+      if (!db.categories || JSON.stringify(db.categories) !== JSON.stringify(expectedCategories)) {
+        db.categories = expectedCategories;
         changed = true;
       }
 
@@ -567,44 +609,19 @@ function loadDB(): DBStore {
   // Seed default database
   const defaultHospitals: Hospital[] = [
     {
-      id: "hosp-jhankat",
-      name: "Ayush Hospital Jhankat",
-      code: "AYUSH-JHK-01",
-      type: "Ayurvedic",
-      address: "Khatima Road, Jhankat, District Udham Singh Nagar, Uttarakhand",
-      contactEmail: "jhankat.ayush@gov.in",
-      contactPhone: "9411223344",
-      isActive: true
-    },
-    {
-      id: "hosp-khatima",
-      name: "Ayush Health Center Khatima",
-      code: "AYUSH-KHT-02",
-      type: "Homeopathic",
-      address: "Main Market, Khatima, Uttarakhand",
-      contactEmail: "khatima.ayush@gov.in",
-      contactPhone: "9411223355",
-      isActive: true
-    },
-    {
-      id: "hosp-tanakpur",
-      name: "Ayush Community Clinic Tanakpur",
-      code: "AYUSH-TNK-03",
-      type: "Unani",
-      address: "Railway Station Road, Tanakpur, Uttarakhand",
-      contactEmail: "tanakpur.ayush@gov.in",
-      contactPhone: "9411223366",
-      isActive: true
-    },
-    {
-      id: "hosp-banbasa",
-      name: "Ayush Dispensary Banbasa",
-      code: "AYUSH-BBS-04",
-      type: "Siddha",
-      address: "NH-9, Banbasa Border, Uttarakhand",
-      contactEmail: "banbasa.ayush@gov.in",
-      contactPhone: "9411223377",
-      isActive: true
+      id: "hosp-d1dgsvb7d",
+      name: "राजकीय आयुर्वेदिक चिकित्सालय - झनकट",
+      code: "00",
+      type: "राजकीय आयुर्वेदिक चिकित्सालय",
+      location: "झनकट",
+      address: "jhankat, khatima, us nagar",
+      contactEmail: "usn.jhankat@uttarakhandayurved.co.in",
+      contactPhone: "9455959592",
+      isActive: true,
+      incharge: "Dr Manvinder Pal Singh",
+      block: "Khatima",
+      district: "उधम सिंह नगर",
+      stream: "Ayurved"
     }
   ];
 
@@ -1422,6 +1439,299 @@ app.delete("/api/admin/hospitals/sheet-config", (req, res) => {
   res.json({ success: true, message: "Google Sheet link removed successfully" });
 });
 
+// GET hospital registration Google Sheet configuration
+app.get("/api/admin/hospitals/registration-sheet-config", (req, res) => {
+  const db = loadDB();
+  res.json({ success: true, url: (db as any).hospitalRegistrationSheetUrl || "" });
+});
+
+// POST save hospital registration Google Sheet link
+app.post("/api/admin/hospitals/registration-sheet-config", (req, res) => {
+  const { url, adminEmail } = req.body;
+  const db = loadDB();
+  (db as any).hospitalRegistrationSheetUrl = url || "";
+  saveDB(db);
+
+  // Log audit trail
+  const adminUser = db.users.find(u => u.email === adminEmail);
+  db.auditLogs.unshift({
+    id: "audit-" + Math.random().toString(36).substring(2, 11),
+    userId: adminUser ? adminUser.id : "system",
+    userEmail: adminEmail || "system@ayush.gov.in",
+    userName: adminUser ? adminUser.name : "System Admin",
+    action: "UPDATE",
+    tableName: "HospitalRegistrationSheetConfig",
+    recordId: "google-registration-sheet-url",
+    details: `Updated hospital registration Google Sheet URL: ${url}`,
+    timestamp: new Date().toISOString()
+  });
+  saveDB(db);
+
+  res.json({ success: true, message: "Google Sheet registration link updated successfully" });
+});
+
+// DELETE hospital registration Google Sheet link
+app.delete("/api/admin/hospitals/registration-sheet-config", (req, res) => {
+  const { adminEmail } = req.body || req.query;
+  const db = loadDB();
+  (db as any).hospitalRegistrationSheetUrl = "";
+  saveDB(db);
+
+  // Log audit trail
+  const adminUser = db.users.find(u => u.email === adminEmail);
+  db.auditLogs.unshift({
+    id: "audit-" + Math.random().toString(36).substring(2, 11),
+    userId: adminUser ? adminUser.id : "system",
+    userEmail: adminEmail || "system@ayush.gov.in",
+    userName: adminUser ? adminUser.name : "System Admin",
+    action: "DELETE",
+    tableName: "HospitalRegistrationSheetConfig",
+    recordId: "google-registration-sheet-url",
+    details: "Removed hospital registration Google Sheet URL link.",
+    timestamp: new Date().toISOString()
+  });
+  saveDB(db);
+
+  res.json({ success: true, message: "Google Sheet registration link removed successfully" });
+});
+
+// POST parse Google Sheet URL and bulk register / upsert hospitals from registration sheet
+app.post("/api/admin/hospitals/sync-registration-sheets", async (req, res) => {
+  const { url, previewOnly, adminEmail } = req.body;
+  
+  if (!url) {
+    return res.status(400).json({ success: false, message: "Google Sheet URL is required" });
+  }
+
+  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (!match) {
+    return res.status(400).json({ success: false, message: "Invalid Google Sheet URL format. Make sure it contains '/spreadsheets/d/{id}'" });
+  }
+
+  const spreadsheetId = match[1];
+  const gidMatch = url.match(/[?&]gid=([0-9]+)/);
+  const gid = gidMatch ? gidMatch[1] : "";
+  let csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&t=${Date.now()}&nocache=${Math.random()}`;
+  if (gid) {
+    csvUrl += `&gid=${gid}`;
+  }
+
+  try {
+    const response = await fetch(csvUrl, {
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`Google Sheet returned HTTP status ${response.status}. Please make sure the sheet is public (Anyone with link can view).`);
+    }
+
+    const csvText = await response.text();
+    
+    if (csvText.trim().startsWith("<html") || csvText.trim().startsWith("<!DOCTYPE")) {
+      return res.status(400).json({
+        success: false,
+        message: "Unable to parse CSV data. The Google Sheet appears to be private or restricted. Please ensure you have set the spreadsheet sharing to 'Anyone with the link can view' so the system can access and sync."
+      });
+    }
+    
+    // Parse using SheetJS (XLSX)
+    const workbook = XLSX.read(csvText, { type: "string" });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const rawRows = XLSX.utils.sheet_to_json<any>(sheet);
+
+    if (!rawRows || rawRows.length === 0) {
+      return res.status(400).json({ success: false, message: "No rows found in the parsed sheet." });
+    }
+
+    // Helper to extract values dynamically
+    const parseHospitalRows = rawRows.map((row: any, index: number) => {
+      const getRawOrFind = (keys: string[]) => {
+        const foundKey = Object.keys(row).find(k => 
+          keys.some(key => {
+            const cleanK = k.toLowerCase().replace(/[\s_-]/g, "");
+            const cleanKey = key.toLowerCase().replace(/[\s_-]/g, "");
+            return cleanK.includes(cleanKey) || cleanKey.includes(cleanK);
+          })
+        );
+        if (foundKey !== undefined && row[foundKey] !== undefined && row[foundKey] !== null) {
+          return String(row[foundKey]).trim();
+        }
+        return "";
+      };
+
+      const name = getRawOrFind(["name", "hospitalname", "facilityname", "चिकित्सालय", "नाम", "hospital", "facility", "title"]);
+      const code = getRawOrFind(["code", "hospitalcode", "facilitycode", "код", "ID", "hospitalid", "hospcode"]);
+      const type = getRawOrFind(["facilitytype", "facility type", "hospitaltype", "प्रकार", "level", "subtype", "nature", "type"]) || "राजकीय आयुर्वेदिक चिकित्सालय";
+      const location = getRawOrFind(["locationname", "location name", "location", "city", "village", "स्थान", "area", "locality"]);
+      const address = getRawOrFind(["address", "locationaddress", "पता", "fulladdress", "addr"]);
+      const contactEmail = getRawOrFind(["email", "contactemail", "email id", "emailid", "email_id", "mail", "ईमेल", "emailaddress", "login"]);
+      const contactPhone = getRawOrFind(["phone", "contactphone", "mobile", "tel", "फोन", "contact", "number", "phoneno", "mobilephone"]);
+      const stream = getRawOrFind(["stream", "ayushstream", "विधा", "system", "branch", "pathy", "specialty"]) || "Ayurved";
+      const incharge = getRawOrFind(["incharge", "moic", "medicalofficer", "prabhari", "officer", "head", "lead", "director", "manager"]);
+      const block = getRawOrFind(["block", "blocks", "विकासखंड", "vblock", "subdivision"]);
+      const district = getRawOrFind(["district", "districts", "state", "जनपद", "dist", "distt"]) || "उधम सिंह नगर";
+      const password = getRawOrFind(["password", "pass", "पासवर्ड", "pwd", "loginpassword", "key"]);
+
+      return {
+        name,
+        code,
+        type,
+        location,
+        address,
+        contactEmail,
+        contactPhone,
+        stream,
+        incharge,
+        block,
+        district,
+        password
+      };
+    });
+
+    if (previewOnly) {
+      return res.json({ success: true, hospitals: parseHospitalRows });
+    }
+
+    // We fully register/upsert the list of hospitals
+    const db = loadDB();
+    const results = {
+      added: 0,
+      updated: 0,
+      errors: [] as string[]
+    };
+
+    parseHospitalRows.forEach((row: any, idx: number) => {
+      const { name, code, type, location, address, contactEmail, contactPhone, stream, incharge, block, district, password } = row;
+
+      if (!location) {
+        results.errors.push(`Row ${idx + 1}: Location (स्थान) is required.`);
+        return;
+      }
+      if (!incharge) {
+        results.errors.push(`Row ${idx + 1}: Incharge name (प्रभारी का नाम) is required.`);
+        return;
+      }
+      if (!contactEmail) {
+        results.errors.push(`Row ${idx + 1}: Email Prefix / Login ID is required.`);
+        return;
+      }
+
+      // Compute name if empty
+      const computedName = name || `${type} - ${location}`;
+      // Compute code if empty
+      let computedCode = code;
+      if (!computedCode) {
+        const prefix = type.includes("यूनानी") ? "SUB" : type.includes("आरोग्य") ? "AAM" : "SAD";
+        const randomNum = Math.floor(100 + Math.random() * 900);
+        computedCode = `${prefix}-${location.toUpperCase().substring(0, 3).replace(/[^A-Z]/g, "X")}-${randomNum}`;
+      }
+
+      const emailAddress = contactEmail.includes("@") ? contactEmail : `${contactEmail}@uttarakhandayurved.co.in`;
+
+      // Check if code or ID already exists in db.hospitals
+      let existingHosp = db.hospitals.find(h => h.code.toUpperCase() === computedCode.toUpperCase());
+
+      if (existingHosp) {
+        // Update details
+        existingHosp.name = computedName;
+        existingHosp.type = type;
+        existingHosp.address = address;
+        existingHosp.contactEmail = emailAddress;
+        existingHosp.contactPhone = contactPhone;
+        existingHosp.stream = stream;
+        existingHosp.location = location;
+        existingHosp.block = block;
+        existingHosp.district = district;
+        existingHosp.incharge = incharge;
+        existingHosp.category = type;
+        results.updated++;
+      } else {
+        // Create new
+        existingHosp = {
+          id: "hosp-" + Math.random().toString(36).substring(2, 11),
+          name: computedName,
+          code: computedCode,
+          type,
+          address,
+          contactEmail: emailAddress,
+          contactPhone,
+          stream,
+          location,
+          block,
+          district,
+          incharge,
+          isActive: true,
+          category: type
+        };
+        db.hospitals.push(existingHosp);
+        results.added++;
+      }
+
+      // Create or update credential in db.users
+      let userTarget = db.users.find(u => u.email.toLowerCase() === emailAddress.toLowerCase());
+      if (userTarget) {
+        userTarget.name = incharge;
+        userTarget.hospitalId = existingHosp.id;
+        userTarget.phone = contactPhone;
+        userTarget.isWhitelisted = true;
+        if (password) {
+          userTarget.password = password;
+        }
+      } else {
+        userTarget = {
+          id: "user-" + Math.random().toString(36).substring(2, 11),
+          email: emailAddress,
+          name: incharge,
+          role: UserRole.HOSPITAL_USER,
+          hospitalId: existingHosp.id,
+          phone: contactPhone,
+          isWhitelisted: true,
+          password: password || "123456"
+        };
+        db.users.push(userTarget);
+      }
+
+      // Sync to Firestore if available
+      if (firestoreDb) {
+        saveHospitalToFirestore(existingHosp).catch(err => console.error("Firestore sync error:", err));
+      }
+    });
+
+    // Save database and write audit logs
+    saveDB(db);
+
+    const adminUser = db.users.find(u => u.email === adminEmail);
+    db.auditLogs.unshift({
+      id: "audit-" + Math.random().toString(36).substring(2, 11),
+      userId: adminUser ? adminUser.id : "system",
+      userEmail: adminEmail || "system@ayush.gov.in",
+      userName: adminUser ? adminUser.name : "System Admin",
+      action: "UPDATE",
+      tableName: "HospitalRegistrationSheets",
+      recordId: "all-synced-registration-sheets",
+      details: `Dynamically synced and registered from Google Sheet. Added: ${results.added}, Updated: ${results.updated}. Errors: ${results.errors.length}`,
+      timestamp: new Date().toISOString()
+    });
+    saveDB(db);
+
+    res.json({
+      success: true,
+      added: results.added,
+      updated: results.updated,
+      errors: results.errors,
+      message: `Sync completed! Registered ${results.added} new facilities and updated ${results.updated} existing records.`
+    });
+
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ success: false, message: err.message || String(err) });
+  }
+});
+
 // POST parse Google Sheet URL and preview or fully synchronize hospital directories
 app.post("/api/admin/hospitals/sync-sheets", async (req, res) => {
   const { url, previewOnly, adminEmail } = req.body;
@@ -1740,6 +2050,150 @@ app.post("/api/admin/hospitals/bulk-upload", (req, res) => {
 });
 
 // Single Hospital Create / Edit Endpoint
+// Single Hospital Create / Edit Endpoint
+app.post("/api/admin/hospitals/bulk-register", (req, res) => {
+  const { adminEmail, rows } = req.body;
+  const db = loadDB();
+
+  const adminUser = db.users.find(u => u.email === adminEmail);
+  if (!adminUser || adminUser.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ success: false, message: "Unauthorized: Only Super Admin can perform bulk registration." });
+  }
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ success: false, message: "No data rows provided." });
+  }
+
+  const results = {
+    addedHospitals: 0,
+    addedUsers: 0,
+    errors: [] as string[]
+  };
+
+  rows.forEach((row: any, idx: number) => {
+    try {
+      const name = (row.name || "").trim();
+      let code = (row.code || "").trim().toUpperCase();
+      const type = (row.type || "राजकीय आयुर्वेदिक चिकित्सालय").trim();
+      const location = (row.location || "").trim();
+      const address = (row.address || "").trim();
+      const contactEmail = (row.contactEmail || "").trim();
+      const contactPhone = (row.contactPhone || "").trim();
+      const incharge = (row.incharge || "").trim();
+      const block = (row.block || "").trim();
+      const district = (row.district || "उधम सिंह नगर").trim();
+      const stream = (row.stream || "Ayurved").trim();
+      const password = (row.password || "").trim();
+
+      if (!location) {
+        results.errors.push(`Row ${idx + 1}: Location is required.`);
+        return;
+      }
+      if (!incharge) {
+        results.errors.push(`Row ${idx + 1}: In-charge Name is required.`);
+        return;
+      }
+      if (!contactEmail) {
+        results.errors.push(`Row ${idx + 1}: Official Email Prefix / Login ID is required.`);
+        return;
+      }
+
+      // Compute name if not explicitly set
+      let computedName = name;
+      if (!computedName) {
+        computedName = `${type} - ${location}`;
+      }
+
+      // Compute code if not explicitly set
+      if (!code) {
+        const prefix = type.includes("यूनानी") ? "SUB" : type.includes("आरोग्य") ? "AAM" : "SAD";
+        const randomNum = Math.floor(100 + Math.random() * 900);
+        code = `${prefix}-${location.toUpperCase().substring(0, 3).replace(/[^A-Z]/g, "X")}-${randomNum}`;
+      }
+
+      // Check duplicate code
+      const codeExists = db.hospitals.find(h => h.code === code);
+      if (codeExists) {
+        results.errors.push(`Row ${idx + 1}: Hospital code ${code} is already registered.`);
+        return;
+      }
+
+      // Create hospital profile
+      const newHosp: Hospital = {
+        id: "hosp-" + Math.random().toString(36).substring(2, 11),
+        name: computedName,
+        code,
+        type,
+        address,
+        contactEmail: contactEmail.includes("@") ? contactEmail : `${contactEmail}@uttarakhandayurved.co.in`,
+        contactPhone,
+        stream,
+        location,
+        block,
+        district,
+        incharge,
+        isActive: true,
+        category: type
+      };
+
+      db.hospitals.push(newHosp);
+      results.addedHospitals++;
+
+      // Create or update credential
+      let userTarget = db.users.find(u => u.email.toLowerCase() === newHosp.contactEmail.toLowerCase());
+      if (userTarget) {
+        userTarget.name = incharge;
+        userTarget.hospitalId = newHosp.id;
+        userTarget.phone = contactPhone;
+        userTarget.isWhitelisted = true;
+        if (password) {
+          userTarget.password = password;
+        }
+      } else {
+        userTarget = {
+          id: "user-" + Math.random().toString(36).substring(2, 11),
+          email: newHosp.contactEmail,
+          name: incharge,
+          role: UserRole.HOSPITAL_USER,
+          hospitalId: newHosp.id,
+          phone: contactPhone,
+          isWhitelisted: true,
+          password: password || "123456"
+        };
+        db.users.push(userTarget);
+      }
+      results.addedUsers++;
+
+      // Audit Log for hospital creation
+      db.auditLogs.unshift({
+        id: "audit-" + Math.random().toString(36).substring(2, 11),
+        userId: adminUser.id,
+        userEmail: adminUser.email,
+        userName: adminUser.name,
+        action: "CREATE_HOSPITAL",
+        tableName: "Hospital",
+        recordId: newHosp.id,
+        details: `Bulk registered hospital: ${computedName} (${code})`,
+        timestamp: new Date().toISOString()
+      });
+
+      // Sync to firestore
+      saveHospitalToFirestore(newHosp).catch(err => console.error(err));
+
+    } catch (err: any) {
+      results.errors.push(`Row ${idx + 1}: ${err.message || err}`);
+    }
+  });
+
+  saveDB(db);
+  return res.json({
+    success: true,
+    addedHospitals: results.addedHospitals,
+    addedUsers: results.addedUsers,
+    errors: results.errors
+  });
+});
+
 app.post("/api/admin/hospitals/save", (req, res) => {
   const { hospital, adminEmail } = req.body; // hospital: Hospital object
   const db = loadDB();
